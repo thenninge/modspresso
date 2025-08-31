@@ -112,7 +112,7 @@ export const CalibrationChart: React.FC<CalibrationChartProps> = ({
   
   const calibrationPoints = useMemo(() => {
     return Object.entries(calibrationData)
-      .filter(([_, pressure]) => pressure !== null && pressure !== undefined)
+      .filter(([, pressure]) => pressure !== null && pressure !== undefined)
       .map(([dimLevel, pressure]) => ({
         dimLevel: parseInt(dimLevel),
         pressure: pressure as number

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Bluetooth, Wifi, WifiOff, RefreshCw, Settings, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { Bluetooth, WifiOff, RefreshCw, Settings, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { useWebSocket } from '@/hooks/use-websocket';
 
 interface BluetoothDevice {
@@ -85,7 +85,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
         setDevices(mockDevices);
         setIsScanning(false);
       }, 3000);
-    } catch (error) {
+    } catch {
       setLastError('Feil ved skanning av enheter');
       setIsScanning(false);
     }
@@ -113,7 +113,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
         localStorage.setItem('modspresso-bluetooth-device', JSON.stringify(device));
         onConnectionChange?.(true);
       }, 2000);
-    } catch (error) {
+    } catch {
       setConnectionStatus('error');
       setLastError('Kunne ikke koble til enhet');
     }
@@ -132,7 +132,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
       setSelectedDevice(null);
       localStorage.removeItem('modspresso-bluetooth-device');
       onConnectionChange?.(false);
-    } catch (error) {
+    } catch {
       setLastError('Feil ved frakobling');
     }
   };

@@ -9,8 +9,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
-  ReferenceArea
+  ReferenceLine
 } from 'recharts';
 import { Play, Square, RotateCcw } from 'lucide-react';
 import { Profile } from '@/types';

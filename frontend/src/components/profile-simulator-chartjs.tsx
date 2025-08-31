@@ -188,7 +188,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
   // Prepare Chart.js data
   const chartData = React.useMemo(() => {
     // Use target curve data as the base timeline
-    const timePoints = targetCurveData.map(d => d.time);
+    
     
     
     
