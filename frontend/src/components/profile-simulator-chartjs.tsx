@@ -48,7 +48,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
   const [simulationData, setSimulationData] = useState<SimulationPoint[]>([]);
   const [currentSegment, setCurrentSegment] = useState(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const chartRef = useRef<ChartJS>(null);
+  const chartRef = useRef<ChartJS<'line'>>(null);
 
   // Calculate chart dimensions
   const maxTime = Math.max(...profile.segments.map(s => s.endTime));
