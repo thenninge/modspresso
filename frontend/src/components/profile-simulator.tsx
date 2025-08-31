@@ -267,11 +267,6 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
           <LineChart
             data={targetCurveData}
             margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-            domain={{ 
-              x: isSimulating ? [Math.max(0, currentTime - WINDOW_SIZE), currentTime + 1] : [0, maxTime], 
-              y: [0, maxPressure + 1] 
-            }}
-            scale="time"
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis
