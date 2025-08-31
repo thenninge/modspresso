@@ -47,7 +47,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
   // Check connection status on mount
   useEffect(() => {
     if (wsConnected) {
-      sendMessage({ type: 'get_connection_status' });
+      sendMessage({ type: 'get_connection_status', data: {} });
     }
   }, [wsConnected, sendMessage]);
 
@@ -62,7 +62,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
     setLastError('');
 
     try {
-      sendMessage({ type: 'scan_bluetooth_devices' });
+      sendMessage({ type: 'scan_bluetooth_devices', data: {} });
       
       // Simulate device discovery (replace with actual WebSocket response handling)
       setTimeout(() => {
@@ -126,7 +126,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
     }
 
     try {
-      sendMessage({ type: 'disconnect_bluetooth_device' });
+      sendMessage({ type: 'disconnect_bluetooth_device', data: {} });
       
       setConnectionStatus('disconnected');
       setSelectedDevice(null);
