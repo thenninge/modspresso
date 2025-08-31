@@ -283,7 +283,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
             <Bluetooth className="h-12 w-12 text-gray-300 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Ingen enheter funnet</h3>
             <p className="text-gray-600">
-              Klikk "Skann for enheter" for å finne tilgjengelige ESP32-enheter
+              Klikk &quot;Skann for enheter&quot; for å finne tilgjengelige ESP32-enheter
             </p>
           </div>
         )}

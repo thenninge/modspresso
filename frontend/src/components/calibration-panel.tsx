@@ -229,7 +229,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
   // Handle WebSocket messages from ESP32
   React.useEffect(() => {
     if (lastMessage && lastMessage.type === 'calibration_data_set') {
-      const data = lastMessage.data;
+      const data = lastMessage.data as any;
       
       if (data.status === 'calibration_data_set') {
         // Success - save to localStorage
@@ -423,11 +423,11 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
               <li>• Koble ESP32 til strøm og last opp firmware</li>
               <li>• Koble manometeret til trykksystemet</li>
               <li>• Start kalibrering for å initialisere feltene</li>
-              <li>• Klikk "Start" for hver dim-level du vil teste</li>
+              <li>• Klikk &quot;Start&quot; for hver dim-level du vil teste</li>
               <li>• Les av trykket på manometeret og registrer verdien</li>
-              <li>• Klikk "Stopp" når du er ferdig med testingen</li>
+              <li>• Klikk &quot;Stopp&quot; når du er ferdig med testingen</li>
               <li>• Gjenta for alle dim-levels du vil kalibrere</li>
-              <li>• Klikk "Fullfør Kalibrering" når du er ferdig</li>
+              <li>• Klikk &quot;Fullfør Kalibrering&quot; når du er ferdig</li>
             </ul>
           </div>
         </div>
