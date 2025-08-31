@@ -229,7 +229,12 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
   // Handle WebSocket messages from ESP32
   React.useEffect(() => {
     if (lastMessage && lastMessage.type === 'calibration_data_set') {
-      const data = lastMessage.data as any;
+      const data = lastMessage.data as {
+        status: string;
+        valid_points?: number;
+        total_points?: number;
+        error?: string;
+      };
       
       if (data.status === 'calibration_data_set') {
         // Success - save to localStorage
