@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/socket.io/(.*)",
+      "dest": "/api/socket/$1"
+    }
+  ]
+}

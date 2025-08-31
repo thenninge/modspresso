@@ -13,7 +13,7 @@ import {
   ReferenceArea
 } from 'recharts';
 import { Play, Square, RotateCcw } from 'lucide-react';
-import { Profile, ProfileSegment } from '@/types';
+import { Profile } from '@/types';
 
 interface ProfileSimulatorProps {
   profile: Profile;
@@ -27,7 +27,11 @@ interface SimulationPoint {
   segment: number;
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ value: number; dataKey: string }>;
+  label?: string;
+}) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">

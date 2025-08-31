@@ -8,13 +8,28 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "http://localhost:3000",
+    origin: [
+      "http://localhost:3000", 
+      "http://localhost:3001",
+      "https://modspresso.vercel.app",
+      "https://modspresso-git-main-thenninge.vercel.app",
+      "https://modspresso-thenninge.vercel.app"
+    ],
     methods: ["GET", "POST"]
   }
 });
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    "http://localhost:3000", 
+    "http://localhost:3001",
+    "https://modspresso.vercel.app",
+    "https://modspresso-git-main-thenninge.vercel.app",
+    "https://modspresso-thenninge.vercel.app"
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
 // Routes

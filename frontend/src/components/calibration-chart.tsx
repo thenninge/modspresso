@@ -80,7 +80,11 @@ const generateSmoothCurve = (calibrationData: Record<number, number>): Array<{di
   return curveData;
 };
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomTooltip = ({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ value: number; dataKey: string }>;
+  label?: string;
+}) => {
   if (active && payload && payload.length) {
     return (
       <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
@@ -116,7 +120,7 @@ export const CalibrationChart: React.FC<CalibrationChartProps> = ({
       .sort((a, b) => a.dimLevel - b.dimLevel);
   }, [calibrationData]);
   
-  const handleChartClick = (data: any) => {
+  const handleChartClick = (data: { activeLabel?: string; activePayload?: Array<{ value: number; payload: { dimLevel: number; pressure: number } }> }) => {
     if (data && data.activePayload && data.activePayload[0]) {
       const point = data.activePayload[0].payload;
       setClickedPoint(point);

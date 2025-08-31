@@ -6,6 +6,7 @@ import ProfileEditor from '@/components/profile-editor';
 import PressureChart from '@/components/pressure-chart';
 import CalibrationPanel from '@/components/calibration-panel';
 import ProfileSimulatorChartJS from '@/components/profile-simulator-chartjs';
+import BluetoothSettings from '@/components/bluetooth-settings';
 import { Profile } from '@/types';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
@@ -15,6 +16,7 @@ export default function Home() {
   const [editingProfile, setEditingProfile] = useState<Profile | undefined>();
   const [simulatingProfile, setSimulatingProfile] = useState<Profile | null>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [bluetoothConnected, setBluetoothConnected] = useState(false);
 
   React.useEffect(() => {
     setIsMounted(true);
@@ -253,14 +255,7 @@ export default function Home() {
   );
 
   const renderSettingsTab = () => (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Innstillinger</h2>
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <p className="text-blue-800">
-          Innstillinger for Bluetooth-tilkobling og systemkonfigurasjon kommer snart.
-        </p>
-      </div>
-    </div>
+    <BluetoothSettings onConnectionChange={setBluetoothConnected} />
   );
 
   return (
@@ -275,8 +270,8 @@ export default function Home() {
             </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center text-sm text-gray-500">
-                <div className="w-2 h-2 bg-red-500 rounded-full mr-2"></div>
-                Ikke tilkoblet
+                <div className={`w-2 h-2 rounded-full mr-2 ${bluetoothConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                {bluetoothConnected ? 'ESP32 tilkoblet' : 'Ikke tilkoblet'}
               </div>
             </div>
           </div>

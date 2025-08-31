@@ -14,7 +14,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { Play, Square, RotateCcw } from 'lucide-react';
-import { Profile, ProfileSegment } from '@/types';
+import { Profile } from '@/types';
 
 ChartJS.register(
   CategoryScale,
@@ -190,14 +190,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
     // Use target curve data as the base timeline
     const timePoints = targetCurveData.map(d => d.time);
     
-    // Create target pressure data
-    const targetPressureData = targetCurveData.map(d => d.targetPressure);
     
-    // Create current pressure data - map simulation data to target timeline
-    const currentPressureData = timePoints.map(time => {
-      const simPoint = simulationData.find(d => d.time === time);
-      return simPoint ? simPoint.currentPressure : null;
-    });
     
     return {
       datasets: [
@@ -251,7 +244,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
         max: maxTime, // Always show full timeline
         ticks: {
           stepSize: Math.max(1, Math.floor(maxTime / 10)), // Show reasonable number of ticks
-          callback: function(value: any, index: any, values: any) {
+          callback: function(value: number) {
             return value + 's';
           }
         },
@@ -267,7 +260,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
         min: 0,
         max: maxPressure + 1,
         ticks: {
-          callback: function(value: any, index: any, values: any) {
+          callback: function(value: number) {
             return value + ' bar';
           }
         },
