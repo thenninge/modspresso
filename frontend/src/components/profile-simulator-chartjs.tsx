@@ -2,18 +2,30 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
   Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-  ReferenceArea
-} from 'recharts';
+  Legend,
+  Filler,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
 import { Play, Square, RotateCcw } from 'lucide-react';
 import { Profile, ProfileSegment } from '@/types';
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+  Filler
+);
 
 interface ProfileSimulatorProps {
   profile: Profile;
@@ -27,28 +39,7 @@ interface SimulationPoint {
   segment: number;
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-        <p className="text-sm font-medium text-gray-800">
-          Tid: <span className="text-blue-600">{label}s</span>
-        </p>
-        <p className="text-sm text-gray-600">
-          Mål-trykk: <span className="text-green-600">{payload[0].value} bar</span>
-        </p>
-        {payload[1] && (
-          <p className="text-sm text-gray-600">
-            Nåværende: <span className="text-red-600">{payload[1].value} bar</span>
-          </p>
-        )}
-      </div>
-    );
-  }
-  return null;
-};
-
-export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({ 
+export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({ 
   profile, 
   height = 300 
 }) => {
@@ -57,21 +48,13 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
   const [simulationData, setSimulationData] = useState<SimulationPoint[]>([]);
   const [currentSegment, setCurrentSegment] = useState(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Sliding window for smooth rendering - only show last 5 seconds
-  const WINDOW_SIZE = 5; // seconds
-  const visibleSimulationData = React.useMemo(() => {
-    if (!isSimulating) return simulationData;
-    
-    const windowStart = Math.max(0, currentTime - WINDOW_SIZE);
-    return simulationData.filter(point => point.time >= windowStart);
-  }, [simulationData, currentTime, isSimulating]);
+  const chartRef = useRef<ChartJS>(null);
 
-  // Calculate chart dimensions based on profile segments (master scale)
+  // Calculate chart dimensions
   const maxTime = Math.max(...profile.segments.map(s => s.endTime));
   const maxPressure = Math.max(...profile.segments.map(s => Math.max(s.startPressure, s.endPressure)));
-  
-  // Generate target curve data based on profile segments (master timeline)
+
+  // Generate target curve data
   const targetCurveData = React.useMemo(() => {
     const data: Array<{time: number, targetPressure: number}> = [];
     
@@ -84,10 +67,13 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
       timePoints.add(segment.endTime);
     });
     
-    // Add intermediate points for smooth curves (every 0.5s)
-    for (let time = 0; time <= maxTime; time += 0.5) {
+    // Add intermediate points for smooth curves (every 0.2s for higher resolution)
+    for (let time = 0; time <= maxTime; time += 0.2) {
       timePoints.add(time);
     }
+    
+    // Ensure we have the final time point
+    timePoints.add(maxTime);
     
     // Convert to sorted array
     const sortedTimePoints = Array.from(timePoints).sort((a, b) => a - b);
@@ -106,8 +92,8 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
       }
       
       data.push({
-        time: time,
-        targetPressure: Math.round(targetPressure * 10) / 10
+        time: Number(time.toFixed(1)),
+        targetPressure: Number(targetPressure.toFixed(1))
       });
     });
     
@@ -122,7 +108,7 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
     
     intervalRef.current = setInterval(() => {
       setCurrentTime(prevTime => {
-        const newTime = prevTime + 0.5;
+        const newTime = prevTime + 0.2;
         
         if (newTime > maxTime) {
           stopSimulation();
@@ -164,16 +150,16 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
         currentPressure = Math.max(0, currentPressure + pressureVariation);
         
         setCurrentSegment(segmentIndex);
-        setSimulationData(prev => [...prev, {
+                setSimulationData(prev => [...prev, {
           time: Number(newTime.toFixed(1)),
-          targetPressure: Math.round(targetPressure * 10) / 10,
-          currentPressure: Math.round(currentPressure * 10) / 10,
+          targetPressure: Number(targetPressure.toFixed(1)),
+          currentPressure: Number(currentPressure.toFixed(1)),
           segment: segmentIndex
         }]);
         
         return newTime;
       });
-    }, 500); // Update every 500ms
+    }, 200); // Update every 200ms for smoother animation
   };
 
   const stopSimulation = () => {
@@ -198,6 +184,110 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
       }
     };
   }, []);
+
+  // Prepare Chart.js data
+  const chartData = React.useMemo(() => {
+    // Use target curve data as the base timeline
+    const timePoints = targetCurveData.map(d => d.time);
+    
+    // Create target pressure data
+    const targetPressureData = targetCurveData.map(d => d.targetPressure);
+    
+    // Create current pressure data - map simulation data to target timeline
+    const currentPressureData = timePoints.map(time => {
+      const simPoint = simulationData.find(d => d.time === time);
+      return simPoint ? simPoint.currentPressure : null;
+    });
+    
+    return {
+      datasets: [
+        {
+          label: 'Mål-trykk',
+          data: targetCurveData.map(d => ({ x: d.time, y: d.targetPressure })),
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          borderWidth: 2,
+          fill: false,
+          tension: 0.8, // Increased tension for smoother curves
+          pointRadius: 0, // Hide points for smooth curve
+        },
+        ...(simulationData.length > 0 ? [{
+          label: 'Nåværende trykk',
+          data: simulationData.map(d => ({ x: d.time, y: d.currentPressure })),
+          borderColor: '#ef4444',
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          borderWidth: 2,
+          fill: false,
+          tension: 0.8, // Increased tension for smoother curves
+          pointRadius: 0, // Hide points for smooth curve
+        }] : []),
+      ],
+    };
+  }, [targetCurveData, simulationData]);
+
+  // Chart.js options
+  const options = React.useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: {
+      duration: 0, // Disable animations for real-time performance
+    },
+    layout: {
+      padding: {
+        left: 10,
+        right: 10,
+        top: 10,
+        bottom: 10,
+      },
+    },
+    scales: {
+      x: {
+        type: 'linear' as const,
+        title: {
+          display: true,
+          text: 'Tid (s)',
+        },
+        min: 0, // Always show from start
+        max: maxTime, // Always show full timeline
+        ticks: {
+          stepSize: Math.max(1, Math.floor(maxTime / 10)), // Show reasonable number of ticks
+          callback: function(value: any, index: any, values: any) {
+            return value + 's';
+          }
+        },
+        grid: {
+          display: true,
+        },
+      },
+      y: {
+        title: {
+          display: true,
+          text: 'Trykk (bar)',
+        },
+        min: 0,
+        max: maxPressure + 1,
+        ticks: {
+          callback: function(value: any, index: any, values: any) {
+            return value + ' bar';
+          }
+        },
+      },
+    },
+    plugins: {
+      legend: {
+        position: 'top' as const,
+      },
+      tooltip: {
+        mode: 'index' as const,
+        intersect: false,
+      },
+    },
+    interaction: {
+      mode: 'nearest' as const,
+      axis: 'x' as const,
+      intersect: false,
+    },
+  }), [maxTime, maxPressure]);
 
   const progressPercent = (currentTime / maxTime) * 100;
 
@@ -260,92 +350,9 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
 
       {/* Chart */}
       <div className="border border-gray-200 rounded-lg p-4">
-        <ResponsiveContainer width="100%" height={height}>
-          <LineChart
-            data={targetCurveData}
-            margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-            domain={{ 
-              x: isSimulating ? [Math.max(0, currentTime - WINDOW_SIZE), currentTime + 1] : [0, maxTime], 
-              y: [0, maxPressure + 1] 
-            }}
-            scale="time"
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis
-              dataKey="time"
-              label={{ value: 'Tid (s)', position: 'insideBottom', offset: -10 }}
-              tick={{ fontSize: 12 }}
-              domain={isSimulating ? [Math.max(0, currentTime - WINDOW_SIZE), currentTime + 1] : [0, maxTime]}
-              type="number"
-              scale="time"
-            />
-            <YAxis
-              label={{ value: 'Trykk (bar)', angle: -90, position: 'insideLeft' }}
-              tick={{ fontSize: 12 }}
-              domain={[0, maxPressure + 1]}
-              type="number"
-            />
-            <Tooltip content={<CustomTooltip />} />
-            
-            {/* Target curve (planned) */}
-            <Line
-              type="monotone"
-              dataKey="targetPressure"
-              stroke="#3b82f6"
-              strokeWidth={2}
-              dot={false}
-              name="Mål-trykk"
-              scale="time"
-            />
-            
-            {/* Current pressure (simulated) */}
-            {visibleSimulationData.length > 0 && (
-              <Line
-                type="monotone"
-                dataKey="currentPressure"
-                stroke="#ef4444"
-                strokeWidth={2}
-                dot={false}
-                name="Nåværende trykk"
-                data={visibleSimulationData}
-                connectNulls={false}
-                scale="time"
-              />
-            )}
-            
-            {/* Current time indicator */}
-            {isSimulating && (
-              <ReferenceLine
-                x={currentTime}
-                stroke="#10b981"
-                strokeWidth={2}
-                label={{
-                  value: `${currentTime.toFixed(1)}s`,
-                  position: 'top',
-                  fill: '#10b981',
-                  fontSize: 12
-                }}
-              />
-            )}
-            
-            {/* Segment boundaries */}
-            {profile.segments.map((segment, index) => (
-              <ReferenceLine
-                key={index}
-                x={segment.startTime}
-                stroke="#f59e0b"
-                strokeDasharray="3 3"
-                strokeWidth={1}
-                label={{
-                  value: `S${index + 1}`,
-                  position: 'insideTop',
-                  fill: '#f59e0b',
-                  fontSize: 10
-                }}
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+        <div style={{ height }}>
+          <Line ref={chartRef} data={chartData} options={options} />
+        </div>
       </div>
 
       {/* Current Status */}
@@ -375,4 +382,4 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
   );
 };
 
-export default ProfileSimulator;
+export default ProfileSimulatorChartJS;

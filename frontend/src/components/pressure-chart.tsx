@@ -63,8 +63,24 @@ export const PressureChart: React.FC<PressureChartProps> = ({
   showArea = true,
   className = ''
 }) => {
+  const [isMounted, setIsMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   const chartData = segmentsToChartData(segments);
   
+  // Don't render until mounted on client
+  if (!isMounted) {
+    return (
+      <div className={`flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg ${className}`} 
+           style={{ width, height }}>
+        <p className="text-gray-500">Laster graf...</p>
+      </div>
+    );
+  }
+
   if (chartData.length === 0) {
     return (
       <div className={`flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg ${className}`} 
@@ -74,8 +90,8 @@ export const PressureChart: React.FC<PressureChartProps> = ({
     );
   }
 
-  const maxTime = Math.max(...chartData.map(d => d.time));
-  const maxPressure = Math.max(...chartData.map(d => d.pressure));
+  const maxTime = isMounted ? Math.max(...chartData.map(d => d.time)) : 0;
+  const maxPressure = isMounted ? Math.max(...chartData.map(d => d.pressure)) : 0;
 
   return (
     <div className={`${className}`}>

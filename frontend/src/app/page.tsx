@@ -5,7 +5,7 @@ import { Coffee, Settings, BarChart3, Play, Plus, SlidersHorizontal, X } from 'l
 import ProfileEditor from '@/components/profile-editor';
 import PressureChart from '@/components/pressure-chart';
 import CalibrationPanel from '@/components/calibration-panel';
-import ProfileSimulator from '@/components/profile-simulator';
+import ProfileSimulatorChartJS from '@/components/profile-simulator-chartjs';
 import { Profile } from '@/types';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
@@ -14,6 +14,11 @@ export default function Home() {
   const [showEditor, setShowEditor] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | undefined>();
   const [simulatingProfile, setSimulatingProfile] = useState<Profile | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  React.useEffect(() => {
+    setIsMounted(true);
+  }, []);
   const [profiles, setProfiles] = useLocalStorage<Profile[]>('modspresso-profiles', [
     {
       id: '1',
@@ -72,15 +77,30 @@ export default function Home() {
     alert(`Starter profil: ${profile.name}`);
   };
 
+  const handleSyncProfiles = () => {
+    // TODO: Send all profiles to ESP32 via WebSocket
+    console.log('Syncing profiles to ESP32:', profiles);
+    
+    // For now, show a simple alert
+    if (profiles.length === 0) {
+      alert('Ingen profiler å synkronisere');
+      return;
+    }
+    
+    alert(`Synkroniserer ${profiles.length} profiler til ESP32\n\nDette vil sende alle profiler til ESP32 for lagring og offline bruk.`);
+  };
+
   const handleSimulateProfile = (profile: Profile) => {
     setSimulatingProfile(profile);
   };
 
   const handleSetDefaultProfile = (profileId: string, button: 1 | 2) => {
     if (button === 1) {
-      setDefaultProfile1(profileId);
+      // Toggle: if already set to this profile, clear it
+      setDefaultProfile1(defaultProfile1 === profileId ? '' : profileId);
     } else {
-      setDefaultProfile2(profileId);
+      // Toggle: if already set to this profile, clear it
+      setDefaultProfile2(defaultProfile2 === profileId ? '' : profileId);
     }
   };
 
@@ -98,11 +118,11 @@ export default function Home() {
           <div className="flex space-x-4 mt-2 text-sm text-gray-600">
             <div className="flex items-center">
               <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
-              Default 1: {defaultProfile1 ? profiles.find(p => p.id === defaultProfile1)?.name || 'Ukjent' : 'Ikke satt'}
+              Default 1: {isMounted && defaultProfile1 ? profiles.find(p => p.id === defaultProfile1)?.name || 'Ukjent' : 'Ikke satt'}
             </div>
             <div className="flex items-center">
               <span className="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
-              Default 2: {defaultProfile2 ? profiles.find(p => p.id === defaultProfile2)?.name || 'Ukjent' : 'Ikke satt'}
+              Default 2: {isMounted && defaultProfile2 ? profiles.find(p => p.id === defaultProfile2)?.name || 'Ukjent' : 'Ikke satt'}
             </div>
           </div>
         </div>
@@ -112,6 +132,15 @@ export default function Home() {
             className="px-3 py-2 text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors text-sm"
           >
             Slett alle
+          </button>
+          <button
+            onClick={handleSyncProfiles}
+            className="flex items-center px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm"
+          >
+            <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Synkroniser
           </button>
           <button
             onClick={handleNewProfile}
@@ -169,7 +198,7 @@ export default function Home() {
 
             <div className="flex justify-between items-center">
               <div className="text-sm text-gray-500">
-                {new Date(profile.createdAt).toLocaleDateString('nb-NO')}
+                {isMounted ? new Date(profile.createdAt).toLocaleDateString('nb-NO') : '...'}
               </div>
               <div className="flex space-x-2">
                 <button 
@@ -190,22 +219,22 @@ export default function Home() {
                   <button
                     onClick={() => handleSetDefaultProfile(profile.id, 1)}
                     className={`px-2 py-1 text-xs rounded ${
-                      defaultProfile1 === profile.id 
-                        ? 'bg-blue-500 text-white' 
+                      isMounted && defaultProfile1 === profile.id 
+                        ? 'bg-blue-500 text-white hover:bg-blue-600' 
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
-                    title="Sett som default profil 1"
+                    title={isMounted && defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
                   >
                     1
                   </button>
                   <button
                     onClick={() => handleSetDefaultProfile(profile.id, 2)}
                     className={`px-2 py-1 text-xs rounded ${
-                      defaultProfile2 === profile.id 
-                        ? 'bg-blue-500 text-white' 
+                      isMounted && defaultProfile2 === profile.id 
+                        ? 'bg-blue-500 text-white hover:bg-blue-600' 
                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
-                    title="Sett som default profil 2"
+                    title={isMounted && defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
                   >
                     2
                   </button>
@@ -331,7 +360,7 @@ export default function Home() {
                   <X size={20} />
                 </button>
               </div>
-              <ProfileSimulator profile={simulatingProfile} height={400} />
+              <ProfileSimulatorChartJS profile={simulatingProfile} height={400} />
             </div>
           </div>
         </div>
