@@ -58,13 +58,33 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
   const [currentSegment, setCurrentSegment] = useState(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Generate target curve data with same resolution as simulation
+  // Calculate chart dimensions based on profile segments (master scale)
+  const maxTime = Math.max(...profile.segments.map(s => s.endTime));
+  const maxPressure = Math.max(...profile.segments.map(s => Math.max(s.startPressure, s.endPressure)));
+  
+  // Generate target curve data based on profile segments (master timeline)
   const targetCurveData = React.useMemo(() => {
     const data: Array<{time: number, targetPressure: number}> = [];
-    const maxTime = Math.max(...profile.segments.map(s => s.endTime));
     
-    // Generate points every 0.5 seconds (same as simulation)
+    // Create a comprehensive timeline from all segment boundaries
+    const timePoints = new Set<number>();
+    
+    // Add all segment start and end times
+    profile.segments.forEach(segment => {
+      timePoints.add(segment.startTime);
+      timePoints.add(segment.endTime);
+    });
+    
+    // Add intermediate points for smooth curves (every 0.5s)
     for (let time = 0; time <= maxTime; time += 0.5) {
+      timePoints.add(time);
+    }
+    
+    // Convert to sorted array
+    const sortedTimePoints = Array.from(timePoints).sort((a, b) => a - b);
+    
+    // Generate target pressure for each time point
+    sortedTimePoints.forEach(time => {
       let targetPressure = 0;
       
       // Find which segment this time belongs to
@@ -80,10 +100,10 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
         time: Math.round(time * 10) / 10,
         targetPressure: Math.round(targetPressure * 10) / 10
       });
-    }
+    });
     
     return data;
-  }, [profile]);
+  }, [profile, maxTime]);
 
   const startSimulation = () => {
     setIsSimulating(true);
@@ -94,7 +114,6 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
     intervalRef.current = setInterval(() => {
       setCurrentTime(prevTime => {
         const newTime = prevTime + 0.5;
-        const maxTime = Math.max(...profile.segments.map(s => s.endTime));
         
         if (newTime > maxTime) {
           stopSimulation();
@@ -120,7 +139,8 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
         
         // Add pump lag/delay (pump takes time to reach target)
         const pumpLag = 0.8; // 80% of target in first 0.5s
-        const timeInSegment = newTime - segment.startTime;
+        const currentSegment = profile.segments[segmentIndex];
+        const timeInSegment = newTime - currentSegment.startTime;
         if (timeInSegment < 1.0) {
           // Pump is still ramping up
           const rampProgress = Math.min(timeInSegment / 1.0, 1.0);
@@ -170,7 +190,6 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
     };
   }, []);
 
-  const maxTime = Math.max(...profile.segments.map(s => s.endTime));
   const progressPercent = (currentTime / maxTime) * 100;
 
   return (
@@ -236,16 +255,23 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
           <LineChart
             data={targetCurveData}
             margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+            domain={{ x: [0, maxTime], y: [0, maxPressure + 1] }}
+            scale="time"
           >
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis
               dataKey="time"
               label={{ value: 'Tid (s)', position: 'insideBottom', offset: -10 }}
               tick={{ fontSize: 12 }}
+              domain={[0, maxTime]}
+              type="number"
+              scale="time"
             />
             <YAxis
               label={{ value: 'Trykk (bar)', angle: -90, position: 'insideLeft' }}
               tick={{ fontSize: 12 }}
+              domain={[0, maxPressure + 1]}
+              type="number"
             />
             <Tooltip content={<CustomTooltip />} />
             
@@ -257,6 +283,7 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
               strokeWidth={2}
               dot={false}
               name="Mål-trykk"
+              scale="time"
             />
             
             {/* Current pressure (simulated) */}
@@ -269,6 +296,8 @@ export const ProfileSimulator: React.FC<ProfileSimulatorProps> = ({
                 dot={false}
                 name="Nåværende trykk"
                 data={simulationData}
+                connectNulls={false}
+                scale="time"
               />
             )}
             
