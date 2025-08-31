@@ -244,8 +244,8 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
         max: maxTime, // Always show full timeline
         ticks: {
           stepSize: Math.max(1, Math.floor(maxTime / 10)), // Show reasonable number of ticks
-          callback: function(value: number) {
-            return value + 's';
+          callback: function(tickValue: number | string) {
+            return tickValue + 's';
           }
         },
         grid: {
@@ -260,8 +260,8 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
         min: 0,
         max: maxPressure + 1,
         ticks: {
-          callback: function(value: number) {
-            return value + ' bar';
+          callback: function(tickValue: number | string) {
+            return tickValue + ' bar';
           }
         },
       },
