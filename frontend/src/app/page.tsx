@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { Coffee, Settings, BarChart3, Play, Plus, SlidersHorizontal, X, Bot } from 'lucide-react';
 import ProfileEditor from '@/components/profile-editor';
+import { VisualProfileEditor } from '@/components/visual-profile-editor';
 import PressureChart from '@/components/pressure-chart';
 import CalibrationPanel from '@/components/calibration-panel';
 import ProfileSimulatorChartJS from '@/components/profile-simulator-chartjs';
@@ -14,6 +15,7 @@ import { predefinedProfiles } from '@/data/default-profiles';
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'brew' | 'profiles' | 'calibration' | 'settings'>('brew');
   const [showEditor, setShowEditor] = useState(false);
+  const [showVisualEditor, setShowVisualEditor] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | undefined>();
   const [simulatingProfile, setSimulatingProfile] = useState<Profile | null>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -49,6 +51,7 @@ export default function Home() {
       setProfiles([...profiles, profile]);
     }
     setShowEditor(false);
+    setShowVisualEditor(false);
     setEditingProfile(undefined);
   };
 
@@ -60,13 +63,30 @@ export default function Home() {
         ...profile,
         id: `copy-${Date.now()}`,
         name: `${profile.name} (Kopi)`,
-        createdAt: new Date().toISOString()
+        createdAt: '2024-01-01T00:00:00.000Z' // Static date to avoid hydration issues
       };
       setEditingProfile(newProfile);
     } else {
       setEditingProfile(profile);
     }
     setShowEditor(true);
+  };
+
+  const handleEditVisualProfile = (profile: Profile) => {
+    const isPredefined = predefinedProfiles.some(p => p.id === profile.id);
+    if (isPredefined) {
+      // Create a copy of predefined profile with new ID
+      const newProfile: Profile = {
+        ...profile,
+        id: `copy-${Date.now()}`,
+        name: `${profile.name} (Kopi)`,
+        createdAt: '2024-01-01T00:00:00.000Z' // Static date to avoid hydration issues
+      };
+      setEditingProfile(newProfile);
+    } else {
+      setEditingProfile(profile);
+    }
+    setShowVisualEditor(true);
   };
 
   const handleDeleteProfile = (profileId: string) => {
@@ -78,6 +98,11 @@ export default function Home() {
   const handleNewProfile = () => {
     setEditingProfile(undefined);
     setShowEditor(true);
+  };
+
+  const handleNewVisualProfile = () => {
+    setEditingProfile(undefined);
+    setShowVisualEditor(true);
   };
 
   const handleClearAllProfiles = () => {
@@ -131,7 +156,7 @@ export default function Home() {
       const existingIds = new Set(profiles.map(p => p.id));
       const toAdd = predefinedProfiles
         .filter(p => !existingIds.has(p.id))
-        .map(p => ({ ...p, createdAt: new Date().toISOString() }));
+        .map(p => ({ ...p, createdAt: '2024-01-01T00:00:00.000Z' })); // Static date to avoid hydration issues
       setProfiles([...profiles, ...toAdd]);
       alert(`${toAdd.length} profiler lagt til.`);
     }
@@ -282,6 +307,13 @@ export default function Home() {
             Predefined
           </button>
           <button
+            onClick={handleNewVisualProfile}
+            className="flex items-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors mr-2"
+          >
+            <BarChart3 size={16} className="mr-2" />
+            Visuell Editor
+          </button>
+          <button
             onClick={handleNewProfile}
             className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
           >
@@ -340,6 +372,13 @@ export default function Home() {
                     title={isPredefined ? "Kopier og rediger" : "Rediger profil"}
                   >
                     <Settings size={16} />
+                  </button>
+                  <button
+                    onClick={() => handleEditVisualProfile(profile)}
+                    className="p-2 text-purple-500 hover:bg-purple-50 rounded"
+                    title={isPredefined ? "Kopier og rediger visuelt" : "Rediger profil visuelt"}
+                  >
+                    <BarChart3 size={16} />
                   </button>
                   {!isPredefined && (
                     <button
@@ -500,6 +539,15 @@ export default function Home() {
             onSave={handleSaveProfile}
             onCancel={() => {
               setShowEditor(false);
+              setEditingProfile(undefined);
+            }}
+          />
+        ) : showVisualEditor ? (
+          <VisualProfileEditor
+            profile={editingProfile}
+            onSave={handleSaveProfile}
+            onCancel={() => {
+              setShowVisualEditor(false);
               setEditingProfile(undefined);
             }}
           />
