@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Coffee, Settings, BarChart3, Play, Plus, SlidersHorizontal, X } from 'lucide-react';
+import { Coffee, Settings, BarChart3, Play, Plus, SlidersHorizontal, X, Bot } from 'lucide-react';
 import ProfileEditor from '@/components/profile-editor';
 import PressureChart from '@/components/pressure-chart';
 import CalibrationPanel from '@/components/calibration-panel';
@@ -12,7 +12,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import { predefinedProfiles } from '@/data/default-profiles';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'profiles' | 'calibration' | 'settings'>('profiles');
+  const [activeTab, setActiveTab] = useState<'brew' | 'profiles' | 'calibration' | 'settings'>('brew');
   const [showEditor, setShowEditor] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | undefined>();
   const [simulatingProfile, setSimulatingProfile] = useState<Profile | null>(null);
@@ -136,6 +136,101 @@ export default function Home() {
       alert(`${toAdd.length} profiler lagt til.`);
     }
   };
+
+  const renderBrewTab = () => (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <div className="flex space-x-4 mt-2 text-sm text-gray-600">
+            <div className="flex items-center">
+              <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
+              Default 1: {isMounted && defaultProfile1 ? profiles.find(p => p.id === defaultProfile1)?.name || 'Ukjent' : 'Ikke satt'}
+            </div>
+            <div className="flex items-center">
+              <span className="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
+              Default 2: {isMounted && defaultProfile2 ? profiles.find(p => p.id === defaultProfile2)?.name || 'Ukjent' : 'Ikke satt'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {profiles.length === 0 ? (
+          <div className="col-span-full text-center py-12">
+            <div className="text-gray-500 mb-4">
+              <Coffee className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Ingen profiler ennå</h3>
+              <p className="text-gray-600">Gå til Profiler-fanen for å opprette eller laste inn profiler</p>
+            </div>
+          </div>
+        ) : (
+          profiles.map((profile) => {
+            const isPredefined = predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id);
+  return (
+            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-gray-800">{profile.name}</h3>
+                    {isPredefined && (
+                      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">Forhåndsdefinert</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-600">{profile.description}</p>
+                </div>
+              </div>
+              
+              <div className="mb-4">
+                <PressureChart segments={profile.segments} height={200} showArea={false} />
+              </div>
+
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-gray-500">
+                  {isMounted ? new Date(profile.createdAt).toLocaleDateString('nb-NO') : '...'}
+                </div>
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={() => handleStartProfile(profile)}
+                    className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+                  >
+                    <Play size={14} className="mr-1" />
+                    Kjør
+                  </button>
+                  {!isPredefined && (
+                    <div className="flex space-x-1">
+                      <button
+                        onClick={() => handleSetDefaultProfile(profile.id, 1)}
+                        className={`px-2 py-1 text-xs rounded ${
+                          isMounted && defaultProfile1 === profile.id 
+                            ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        title={isMounted && defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
+                      >
+                        1
+                      </button>
+                      <button
+                        onClick={() => handleSetDefaultProfile(profile.id, 2)}
+                        className={`px-2 py-1 text-xs rounded ${
+                          isMounted && defaultProfile2 === profile.id 
+                            ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                        title={isMounted && defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
+                      >
+                        2
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+          </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
 
   const renderProfilesTab = () => (
     <div className="space-y-6">
@@ -310,7 +405,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
-              <Coffee className="h-8 w-8 text-blue-500 mr-3" />
+              <img src="/icon.png" alt="Modspresso" className="h-8 w-12 mr-3" />
               <h1 className="text-xl font-bold text-gray-900">Modspresso</h1>
             </div>
             <div className="flex items-center space-x-4">
@@ -327,6 +422,17 @@ export default function Home() {
       <nav className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex space-x-8">
+            <button
+              onClick={() => setActiveTab('brew')}
+              className={`flex items-center py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'brew'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Coffee className="mr-2 h-5 w-5" />
+              Brew
+            </button>
             <button
               onClick={() => setActiveTab('profiles')}
               className={`flex items-center py-4 px-1 border-b-2 font-medium text-sm ${
@@ -377,6 +483,7 @@ export default function Home() {
           />
         ) : (
           <>
+            {activeTab === 'brew' && renderBrewTab()}
             {activeTab === 'profiles' && renderProfilesTab()}
             {activeTab === 'calibration' && renderCalibrationTab()}
             {activeTab === 'settings' && renderSettingsTab()}
