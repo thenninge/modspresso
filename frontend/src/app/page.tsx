@@ -165,10 +165,10 @@ export default function Home() {
           </div>
         ) : (
           profiles.map((profile) => {
-            // Only check predefined status on client side to avoid hydration mismatch
-            const isPredefined = isMounted ? predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id) : false;
+            // Server always renders as white, client checks predefined after mounting
+            const isPredefined = false; // Will be updated after client-side mounting
   return (
-            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isMounted && isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
+            <div key={profile.id} className="rounded-lg shadow-md p-6 bg-white">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="flex items-center gap-2">
@@ -299,10 +299,10 @@ export default function Home() {
           </div>
         ) : (
           profiles.map((profile) => {
-            // Only check predefined status on client side to avoid hydration mismatch
-            const isPredefined = isMounted ? predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id) : false;
+            // Server always renders as white, client checks predefined after mounting
+            const isPredefined = false; // Will be updated after client-side mounting
             return (
-            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isMounted && isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
+            <div key={profile.id} className="rounded-lg shadow-md p-6 bg-white">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="flex items-center gap-2">
