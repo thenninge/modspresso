@@ -36,6 +36,7 @@ interface SimulationPoint {
   time: number;
   targetPressure: number;
   currentPressure: number;
+  dimLevel: number;
   segment: number;
 }
 
@@ -47,6 +48,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [simulationData, setSimulationData] = useState<SimulationPoint[]>([]);
   const [currentSegment, setCurrentSegment] = useState(0);
+  const [simulateNoise, setSimulateNoise] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const chartRef = useRef<ChartJS<'line'>>(null);
 
@@ -141,18 +143,24 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
           currentPressure = targetPressure * (pumpLag + (1 - pumpLag) * rampProgress);
         }
         
-        // Add realistic noise/variation
-        const baseNoise = (Math.random() - 0.5) * 0.2; // ±0.1 bar base noise
-        const pumpVibration = Math.sin(newTime * 10) * 0.05; // High-frequency vibration
-        const pressureVariation = baseNoise + pumpVibration;
+        // Calculate dim level based on target pressure (simplified mapping)
+        // This simulates what ESP32 would send to the pump
+        const dimLevel = Math.max(0, Math.min(100, Math.round(targetPressure * 8.33))); // 0-12 bar -> 0-100%
         
-        currentPressure = Math.max(0, currentPressure + pressureVariation);
+        // Add noise only if simulateNoise is enabled
+        if (simulateNoise) {
+          const baseNoise = (Math.random() - 0.5) * 0.2; // ±0.1 bar base noise
+          const pumpVibration = Math.sin(newTime * 10) * 0.05; // High-frequency vibration
+          const pressureVariation = baseNoise + pumpVibration;
+          currentPressure = Math.max(0, currentPressure + pressureVariation);
+        }
         
         setCurrentSegment(segmentIndex);
-                setSimulationData(prev => [...prev, {
+        setSimulationData(prev => [...prev, {
           time: Number(newTime.toFixed(1)),
           targetPressure: Number(targetPressure.toFixed(1)),
           currentPressure: Number(currentPressure.toFixed(1)),
+          dimLevel: dimLevel,
           segment: segmentIndex
         }]);
         
@@ -191,8 +199,8 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
     return {
       datasets: [
         ...(simulationData.length > 0 ? [{
-          label: 'Realtime',
-          data: simulationData.map(d => ({ x: d.time, y: d.currentPressure })),
+          label: 'Realtime (Dim Level)',
+          data: simulationData.map(d => ({ x: d.time, y: d.dimLevel / 10 })), // Convert % to bar scale for display
           borderColor: '#ef4444',
           backgroundColor: 'transparent', // No fill for legend symbol
           borderWidth: 2,
@@ -251,13 +259,18 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
       y: {
         title: {
           display: true,
-          text: 'Trykk (bar)',
+          text: 'Trykk (bar) / Dim Level (%)',
         },
         min: 0,
-        max: 9,
+        max: 10,
         ticks: {
           callback: function(tickValue: number | string) {
-            return tickValue + ' bar';
+            const value = Number(tickValue);
+            if (value <= 9) {
+              return value + ' bar';
+            } else {
+              return '100%';
+            }
           }
         },
       },
@@ -310,6 +323,16 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
             <RotateCcw size={16} className="mr-1" />
             Reset
           </button>
+          
+          <label className="flex items-center space-x-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={simulateNoise}
+              onChange={(e) => setSimulateNoise(e.target.checked)}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span>Simuler støy</span>
+          </label>
         </div>
         
         <div className="text-sm text-gray-600">
