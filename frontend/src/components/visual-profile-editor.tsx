@@ -34,20 +34,18 @@ export const VisualProfileEditor: React.FC<VisualProfileEditorProps> = ({
       });
       return profilePoints.sort((a, b) => a.time - b.time);
     }
-    // Default: straight line at 8 bar
+    // Default: just 2 points - user must draw the rest
     return [
       { time: 0, pressure: 2 },
-      { time: 8, pressure: 8 },
-      { time: 45, pressure: 8 },
-      { time: 55, pressure: 6 }
+      { time: 12, pressure: 8 }
     ];
   });
 
   const [draggingPoint, setDraggingPoint] = useState<number | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  const GRID_SIZE = 40; // pixels per grid unit
-  const TIME_RANGE = 60; // seconds
+  const GRID_SIZE = 25; // pixels per grid unit (reduced from 40 to fit 50s on screen)
+  const TIME_RANGE = 50; // seconds (reduced from 60 to 50)
   const PRESSURE_RANGE = 9; // bar (changed from 10 to 9 to match our app)
   const POINT_RADIUS = 6;
 
@@ -257,9 +255,7 @@ export const VisualProfileEditor: React.FC<VisualProfileEditorProps> = ({
   const handleReset = () => {
     setPoints([
       { time: 0, pressure: 2 },
-      { time: 8, pressure: 8 },
-      { time: 45, pressure: 8 },
-      { time: 55, pressure: 6 }
+      { time: 12, pressure: 8 }
     ]);
   };
 
@@ -315,8 +311,9 @@ export const VisualProfileEditor: React.FC<VisualProfileEditorProps> = ({
         {/* Instructions */}
         <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-sm text-blue-800">
-            <strong>Instruksjoner:</strong> Klikk på grafen for å legge til punkter. 
-            Dra punktene for å endre trykk og tid. Snapper til 1s intervaller og 0.5 bar steg.
+            <strong>Instruksjoner:</strong> Profilen starter med 2 punkter (0s @ 2bar, 12s @ 8bar). 
+            Klikk på grafen for å legge til flere punkter. Dra punktene for å endre trykk og tid. 
+            Snapper til 1s intervaller og 0.5 bar steg.
           </p>
         </div>
 
