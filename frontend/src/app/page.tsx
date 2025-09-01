@@ -34,7 +34,7 @@ export default function Home() {
         { startTime: 30, endTime: 32, startPressure: 8, endPressure: 6 },
         { startTime: 32, endTime: 36, startPressure: 6, endPressure: 6 }
       ],
-      createdAt: new Date().toISOString()
+      createdAt: '2024-01-01T00:00:00.000Z'
     }
   ]);
 
@@ -58,7 +58,7 @@ export default function Home() {
       // Create a copy of predefined profile with new ID
       const newProfile: Profile = {
         ...profile,
-        id: Date.now().toString(),
+        id: `copy-${Date.now()}`,
         name: `${profile.name} (Kopi)`,
         createdAt: new Date().toISOString()
       };
