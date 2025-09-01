@@ -300,7 +300,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
           className="flex items-center px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           <Save size={16} className="mr-2" />
-          Fullfør Kalibrering
+          Lagre
         </button>
         <button
           onClick={sendToESP32}
@@ -308,14 +308,14 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
           className="flex items-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
         >
           <Send size={16} className="mr-2" />
-          Send trykkmapping til ESP32
+          Send
         </button>
         <button
           onClick={loadDefaultCalibration}
           className="flex items-center px-4 py-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors"
         >
           <Download size={16} className="mr-2" />
-          Last default-kalibrering
+          Default
         </button>
         <button
           onClick={resetCalibration}
@@ -432,7 +432,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
               <li>• Les av trykket på manometeret og registrer verdien</li>
               <li>• Klikk &quot;Stopp&quot; når du er ferdig med testingen</li>
               <li>• Gjenta for alle dim-levels du vil kalibrere</li>
-              <li>• Klikk &quot;Fullfør Kalibrering&quot; når du er ferdig</li>
+              <li>• Klikk &quot;Lagre&quot; når du er ferdig</li>
             </ul>
           </div>
         </div>
