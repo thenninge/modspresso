@@ -155,7 +155,17 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {profiles.length === 0 ? (
+        {!isMounted ? (
+          // Server-side: Always show loading state
+          <div className="col-span-full text-center py-12">
+            <div className="text-gray-500 mb-4">
+              <Coffee className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Laster profiler...</h3>
+              <p className="text-gray-600">Venter på data</p>
+            </div>
+          </div>
+        ) : profiles.length === 0 ? (
+          // Client-side: Show empty state
           <div className="col-span-full text-center py-12">
             <div className="text-gray-500 mb-4">
               <Coffee className="h-12 w-12 mx-auto mb-4 text-gray-300" />
@@ -164,16 +174,16 @@ export default function Home() {
             </div>
           </div>
         ) : (
+          // Client-side: Show profiles
           profiles.map((profile) => {
-            // Server always renders as white, client checks predefined after mounting
-            const isPredefined = false; // Will be updated after client-side mounting
-  return (
-            <div key={profile.id} className="rounded-lg shadow-md p-6 bg-white">
+            const isPredefined = predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id);
+            return (
+            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold text-gray-800">{profile.name}</h3>
-                    {isMounted && isPredefined && (
+                    {isPredefined && (
                       <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">Forhåndsdefinert</span>
                     )}
                   </div>
@@ -187,7 +197,7 @@ export default function Home() {
 
               <div className="flex justify-between items-center">
                 <div className="text-sm text-gray-500" suppressHydrationWarning>
-                  {isMounted ? new Date(profile.createdAt).toLocaleDateString('nb-NO') : '...'}
+                  {new Date(profile.createdAt).toLocaleDateString('nb-NO')}
                 </div>
                 <div className="flex space-x-2">
                   <button 
@@ -197,27 +207,27 @@ export default function Home() {
                     <Play size={14} className="mr-1" />
                     Kjør
                   </button>
-                  {!(isMounted && isPredefined) && (
+                  {!isPredefined && (
                     <div className="flex space-x-1">
                       <button
                         onClick={() => handleSetDefaultProfile(profile.id, 1)}
                         className={`px-2 py-1 text-xs rounded ${
-                          isMounted && defaultProfile1 === profile.id 
+                          defaultProfile1 === profile.id 
                             ? 'bg-blue-500 text-white hover:bg-blue-600' 
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         }`}
-                        title={isMounted && defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
+                        title={defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
                       >
                         1
                       </button>
                       <button
                         onClick={() => handleSetDefaultProfile(profile.id, 2)}
                         className={`px-2 py-1 text-xs rounded ${
-                          isMounted && defaultProfile2 === profile.id 
+                          defaultProfile2 === profile.id 
                             ? 'bg-blue-500 text-white hover:bg-blue-600' 
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         }`}
-                        title={isMounted && defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
+                        title={defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
                       >
                         2
                       </button>
@@ -282,7 +292,17 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {profiles.length === 0 ? (
+        {!isMounted ? (
+          // Server-side: Always show loading state
+          <div className="col-span-full text-center py-12">
+            <div className="text-gray-500 mb-4">
+              <Coffee className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">Laster profiler...</h3>
+              <p className="text-gray-600">Venter på data</p>
+            </div>
+          </div>
+        ) : profiles.length === 0 ? (
+          // Client-side: Show empty state
           <div className="col-span-full text-center py-12">
             <div className="text-gray-500 mb-4">
               <Coffee className="h-12 w-12 mx-auto mb-4 text-gray-300" />
@@ -298,16 +318,16 @@ export default function Home() {
             </button>
           </div>
         ) : (
+          // Client-side: Show profiles
           profiles.map((profile) => {
-            // Server always renders as white, client checks predefined after mounting
-            const isPredefined = false; // Will be updated after client-side mounting
+            const isPredefined = predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id);
             return (
-            <div key={profile.id} className="rounded-lg shadow-md p-6 bg-white">
+            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold text-gray-800">{profile.name}</h3>
-                    {isMounted && isPredefined && (
+                    {isPredefined && (
                       <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">Forhåndsdefinert</span>
                     )}
                   </div>
@@ -317,11 +337,11 @@ export default function Home() {
                   <button
                     onClick={() => handleEditProfile(profile)}
                     className="p-2 text-blue-500 hover:bg-blue-50 rounded"
-                    title={isMounted && isPredefined ? "Kopier og rediger" : "Rediger profil"}
+                    title={isPredefined ? "Kopier og rediger" : "Rediger profil"}
                   >
                     <Settings size={16} />
                   </button>
-                  {!(isMounted && isPredefined) && (
+                  {!isPredefined && (
                     <button
                       onClick={() => handleDeleteProfile(profile.id)}
                       className="p-2 text-red-500 hover:bg-red-50 rounded"
@@ -339,7 +359,7 @@ export default function Home() {
 
               <div className="flex justify-between items-center">
                 <div className="text-sm text-gray-500" suppressHydrationWarning>
-                  {isMounted ? new Date(profile.createdAt).toLocaleDateString('nb-NO') : '...'}
+                  {new Date(profile.createdAt).toLocaleDateString('nb-NO')}
                 </div>
                 <div className="flex space-x-2">
                   <button 
@@ -356,27 +376,27 @@ export default function Home() {
                     <Play size={14} className="mr-1" />
                     Simuler
                   </button>
-                  {!(isMounted && isPredefined) && (
+                  {!isPredefined && (
                     <div className="flex space-x-1">
                       <button
                         onClick={() => handleSetDefaultProfile(profile.id, 1)}
                         className={`px-2 py-1 text-xs rounded ${
-                          isMounted && defaultProfile1 === profile.id 
+                          defaultProfile1 === profile.id 
                             ? 'bg-blue-500 text-white hover:bg-blue-600' 
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         }`}
-                        title={isMounted && defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
+                        title={defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
                       >
                         1
                       </button>
                       <button
                         onClick={() => handleSetDefaultProfile(profile.id, 2)}
                         className={`px-2 py-1 text-xs rounded ${
-                          isMounted && defaultProfile2 === profile.id 
+                          defaultProfile2 === profile.id 
                             ? 'bg-blue-500 text-white hover:bg-blue-600' 
                             : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                         }`}
-                        title={isMounted && defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
+                        title={defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
                       >
                         2
                       </button>
