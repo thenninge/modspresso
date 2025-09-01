@@ -188,31 +188,28 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
   const chartData = React.useMemo(() => {
     // Use target curve data as the base timeline
     
-    
-    
-    
     return {
       datasets: [
-        {
-          label: 'Mål-trykk',
-          data: targetCurveData.map(d => ({ x: d.time, y: d.targetPressure })),
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
-          borderWidth: 2,
-          fill: false,
-          tension: 0.8, // Increased tension for smoother curves
-          pointRadius: 0, // Hide points for smooth curve
-        },
         ...(simulationData.length > 0 ? [{
-          label: 'Nåværende trykk',
+          label: 'Realtime',
           data: simulationData.map(d => ({ x: d.time, y: d.currentPressure })),
           borderColor: '#ef4444',
-          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          backgroundColor: 'transparent', // No fill for legend symbol
           borderWidth: 2,
           fill: false,
           tension: 0.8, // Increased tension for smoother curves
           pointRadius: 0, // Hide points for smooth curve
         }] : []),
+        {
+          label: 'Profile',
+          data: targetCurveData.map(d => ({ x: d.time, y: d.targetPressure })),
+          borderColor: '#3b82f6',
+          backgroundColor: 'transparent', // No fill for legend symbol
+          borderWidth: 2,
+          fill: false,
+          tension: 0.8, // Increased tension for smoother curves
+          pointRadius: 0, // Hide points for smooth curve
+        },
       ],
     };
   }, [targetCurveData, simulationData]);
