@@ -21,7 +21,7 @@ export const predefinedProfiles: Profile[] = [
     segments: [
       { startTime: 0, endTime: 6, startPressure: 2.5, endPressure: 2.5 },
       { startTime: 6, endTime: 7, startPressure: 2.5, endPressure: 8 },
-      { startTime: 10, endTime: 32, startPressure: 8, endPressure: 8 },
+      { startTime: 7, endTime: 32, startPressure: 8, endPressure: 8 },
       { startTime: 32, endTime: 40, startPressure: 6, endPressure: 6 },
       { startTime: 40, endTime: 41, startPressure: 0, endPressure: 0 }
     ],
