@@ -221,40 +221,40 @@ export default function Home() {
               </div>
 
               <div className="flex justify-between items-center">
+                {!isPredefined && (
+                  <div className="flex space-x-1">
+                    <button
+                      onClick={() => handleSetDefaultProfile(profile.id, 1)}
+                      className={`px-2 py-1 text-xs rounded ${
+                        defaultProfile1 === profile.id 
+                          ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title={defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
+                    >
+                      1
+                    </button>
+                    <button
+                      onClick={() => handleSetDefaultProfile(profile.id, 2)}
+                      className={`px-2 py-1 text-xs rounded ${
+                        defaultProfile2 === profile.id 
+                          ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title={defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
+                    >
+                      2
+                    </button>
+                  </div>
+                )}
                 <div className="flex space-x-2">
                   <button 
                     onClick={() => handleStartProfile(profile)}
                     className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
                   >
                     <Play size={14} className="mr-1" />
-                    Kjør
+                    Brew
                   </button>
-                  {!isPredefined && (
-                    <div className="flex space-x-1">
-                      <button
-                        onClick={() => handleSetDefaultProfile(profile.id, 1)}
-                        className={`px-2 py-1 text-xs rounded ${
-                          defaultProfile1 === profile.id 
-                            ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title={defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
-                      >
-                        1
-                      </button>
-                      <button
-                        onClick={() => handleSetDefaultProfile(profile.id, 2)}
-                        className={`px-2 py-1 text-xs rounded ${
-                          defaultProfile2 === profile.id 
-                            ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title={defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
-                      >
-                        2
-                      </button>
-                    </div>
-                  )}
                 </div>
               </div>
           </div>
@@ -270,10 +270,11 @@ export default function Home() {
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <button
-            onClick={handleClearAllProfiles}
-            className="px-3 py-1.5 text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors text-sm"
+            onClick={handleNewProfile}
+            className="flex items-center justify-center px-3 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-sm"
           >
-            Slett alle
+            <Plus size={16} className="mr-2" />
+            Ny Profil
           </button>
           <button
             onClick={handleSyncProfiles}
@@ -290,7 +291,7 @@ export default function Home() {
             onClick={handleLoadPredefined}
             className="flex items-center justify-center px-3 py-1.5 bg-gray-100 text-gray-800 rounded-md hover:bg-gray-200 transition-colors text-sm"
           >
-            Predefined
+            Predefinerte
           </button>
           <button
             onClick={handleNewVisualProfile}
@@ -298,15 +299,6 @@ export default function Home() {
           >
             <BarChart3 size={16} className="mr-2" />
             Visuell Editor
-          </button>
-        </div>
-        <div className="flex justify-center">
-          <button
-            onClick={handleNewProfile}
-            className="flex items-center px-4 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-sm"
-          >
-            <Plus size={16} className="mr-2" />
-            Ny Profil
           </button>
         </div>
       </div>
