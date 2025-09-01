@@ -258,7 +258,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
           text: 'Trykk (bar)',
         },
         min: 0,
-        max: maxPressure + 1,
+        max: 10,
         ticks: {
           callback: function(tickValue: number | string) {
             return tickValue + ' bar';
