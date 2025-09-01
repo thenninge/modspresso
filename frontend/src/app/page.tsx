@@ -165,14 +165,15 @@ export default function Home() {
           </div>
         ) : (
           profiles.map((profile) => {
-            const isPredefined = predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id);
+            // Only check predefined status on client side to avoid hydration mismatch
+            const isPredefined = isMounted ? predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id) : false;
   return (
-            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
+            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isMounted && isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold text-gray-800">{profile.name}</h3>
-                    {isPredefined && (
+                    {isMounted && isPredefined && (
                       <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">Forhåndsdefinert</span>
                     )}
                   </div>
@@ -196,7 +197,7 @@ export default function Home() {
                     <Play size={14} className="mr-1" />
                     Kjør
                   </button>
-                  {!isPredefined && (
+                  {!(isMounted && isPredefined) && (
                     <div className="flex space-x-1">
                       <button
                         onClick={() => handleSetDefaultProfile(profile.id, 1)}
@@ -298,14 +299,15 @@ export default function Home() {
           </div>
         ) : (
           profiles.map((profile) => {
-            const isPredefined = predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id);
+            // Only check predefined status on client side to avoid hydration mismatch
+            const isPredefined = isMounted ? predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id) : false;
             return (
-            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
+            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isMounted && isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-lg font-semibold text-gray-800">{profile.name}</h3>
-                    {isPredefined && (
+                    {isMounted && isPredefined && (
                       <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">Forhåndsdefinert</span>
                     )}
                   </div>
@@ -315,11 +317,11 @@ export default function Home() {
                   <button
                     onClick={() => handleEditProfile(profile)}
                     className="p-2 text-blue-500 hover:bg-blue-50 rounded"
-                    title={isPredefined ? "Kopier og rediger" : "Rediger profil"}
+                    title={isMounted && isPredefined ? "Kopier og rediger" : "Rediger profil"}
                   >
                     <Settings size={16} />
                   </button>
-                  {!isPredefined && (
+                  {!(isMounted && isPredefined) && (
                     <button
                       onClick={() => handleDeleteProfile(profile.id)}
                       className="p-2 text-red-500 hover:bg-red-50 rounded"

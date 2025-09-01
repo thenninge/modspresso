@@ -52,7 +52,6 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
 
   // Calculate chart dimensions
   const maxTime = Math.max(...profile.segments.map(s => s.endTime));
-  const maxPressure = Math.max(...profile.segments.map(s => Math.max(s.startPressure, s.endPressure)));
 
   // Generate target curve data
   const targetCurveData = React.useMemo(() => {
@@ -280,7 +279,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
       axis: 'x' as const,
       intersect: false,
     },
-  }), [maxTime, maxPressure]);
+  }), [maxTime]);
 
   const progressPercent = (currentTime / maxTime) * 100;
 

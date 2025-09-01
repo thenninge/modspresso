@@ -95,7 +95,6 @@ export const PressureChart: React.FC<PressureChartProps> = ({
   }
 
   const maxTime = isMounted ? Math.max(...chartData.map(d => d.time)) : 0;
-  const maxPressure = isMounted ? Math.max(...chartData.map(d => d.pressure)) : 0;
 
   return (
     <div className={`${className}`}>
