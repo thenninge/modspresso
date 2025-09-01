@@ -199,7 +199,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
     return {
       datasets: [
         ...(simulationData.length > 0 ? [{
-          label: 'Realtime (Dim Level)',
+          label: 'Realtime (Output %)',
           data: simulationData.map(d => ({ x: d.time, y: d.dimLevel / 10 })), // Convert % to bar scale for display
           borderColor: '#ef4444',
           backgroundColor: 'transparent', // No fill for legend symbol
@@ -259,7 +259,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
       y: {
         title: {
           display: true,
-          text: 'Trykk (bar) / Dim Level (%)',
+          text: 'Trykk (bar) / Output (%)',
         },
         min: 0,
         max: 10,

@@ -344,7 +344,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4 flex-1">
                   <div className="w-16 text-sm font-medium text-gray-700">
-                    {step.dimLevel}% output
+                    {step.dimLevel}% Output
                   </div>
                   <div className="flex items-center space-x-2 flex-1">
                     <span className="text-sm text-gray-600">Trykk:</span>
@@ -428,10 +428,10 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
               <li>• Koble ESP32 til strøm og last opp firmware</li>
               <li>• Koble manometeret til trykksystemet</li>
               <li>• Start kalibrering for å initialisere feltene</li>
-              <li>• Klikk &quot;Start&quot; for hver dim-level du vil teste</li>
+              <li>• Klikk &quot;Start&quot; for hver Output-verdi du vil teste</li>
               <li>• Les av trykket på manometeret og registrer verdien</li>
               <li>• Klikk &quot;Stopp&quot; når du er ferdig med testingen</li>
-              <li>• Gjenta for alle dim-levels du vil kalibrere</li>
+              <li>• Gjenta for alle Output-verdier du vil kalibrere</li>
               <li>• Klikk &quot;Lagre&quot; når du er ferdig</li>
             </ul>
           </div>
