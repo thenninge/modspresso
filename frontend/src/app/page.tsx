@@ -221,9 +221,6 @@ export default function Home() {
               </div>
 
               <div className="flex justify-between items-center">
-                <div className="text-sm text-gray-500" suppressHydrationWarning>
-                  {new Date(profile.createdAt).toLocaleDateString('nb-NO')}
-                </div>
                 <div className="flex space-x-2">
                   <button 
                     onClick={() => handleStartProfile(profile)}
@@ -397,9 +394,6 @@ export default function Home() {
               </div>
 
               <div className="flex justify-between items-center">
-                <div className="text-sm text-gray-500" suppressHydrationWarning>
-                  {new Date(profile.createdAt).toLocaleDateString('nb-NO')}
-                </div>
                 <div className="flex space-x-2">
                   <button 
                   onClick={() => handleStartProfile(profile)}
