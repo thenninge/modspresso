@@ -111,7 +111,7 @@ export const PressureChart: React.FC<PressureChartProps> = ({
             />
             <YAxis 
               label={{ value: 'Trykk (bar)', angle: -90, position: 'insideLeft' }}
-              domain={[0, 10]}
+              domain={[0, 9]}
             />
             <Tooltip content={<CustomTooltip />} />
             <Area 
@@ -134,7 +134,7 @@ export const PressureChart: React.FC<PressureChartProps> = ({
             />
             <YAxis 
               label={{ value: 'Trykk (bar)', angle: -90, position: 'insideLeft' }}
-              domain={[0, 10]}
+              domain={[0, 9]}
             />
             <Tooltip content={<CustomTooltip />} />
             <Line 
