@@ -12,20 +12,20 @@ export const predefinedProfiles: Profile[] = [
       { startTime: 30, endTime: 32, startPressure: 9, endPressure: 6 },
       { startTime: 32, endTime: 36, startPressure: 6, endPressure: 6 }
     ],
-    createdAt: new Date('2024-01-01').toISOString()
+    createdAt: '2024-01-01T00:00:00.000Z'
   },
   {
     id: 'lippe4',
     name: 'Lippe #4',
-    description: 'Kort og intens espresso med høy trykk',
+    description: 'Kort pre-infuse',
     segments: [
       { startTime: 0, endTime: 6, startPressure: 2.5, endPressure: 2.5 },
-      { startTime: 6, endTime: 7, startPressure: 2, endPressure: 8 },
+      { startTime: 6, endTime: 7, startPressure: 2.5, endPressure: 8 },
       { startTime: 10, endTime: 32, startPressure: 8, endPressure: 8 },
       { startTime: 32, endTime: 40, startPressure: 6, endPressure: 6 },
       { startTime: 40, endTime: 41, startPressure: 0, endPressure: 0 }
     ],
-    createdAt: new Date('2024-01-01').toISOString()
+    createdAt: '2024-01-01T00:00:00.000Z'
   },
   {
     id: 'lippe6',
@@ -39,7 +39,7 @@ export const predefinedProfiles: Profile[] = [
       { startTime: 35, endTime: 45, startPressure: 8, endPressure: 5.5 },
       { startTime: 45, endTime: 46, startPressure: 0, endPressure: 0 }
     ],
-    createdAt: new Date('2024-01-01').toISOString()
+    createdAt: '2024-01-01T00:00:00.000Z'
   },
   {
     id: 'srw',
@@ -52,6 +52,6 @@ export const predefinedProfiles: Profile[] = [
       { startTime: 35, endTime: 45, startPressure: 5, endPressure: 5 },
       { startTime: 45, endTime: 46, startPressure: 0, endPressure: 0 }
     ],
-    createdAt: new Date('2024-01-01').toISOString()
+    createdAt: '2024-01-01T00:00:00.000Z'
   }
 ];
