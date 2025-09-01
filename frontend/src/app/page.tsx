@@ -267,52 +267,43 @@ export default function Home() {
 
   const renderProfilesTab = () => (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <div className="flex space-x-4 mt-2 text-sm text-gray-600">
-            <div className="flex items-center">
-              <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
-              Default 1: {isMounted && defaultProfile1 ? profiles.find(p => p.id === defaultProfile1)?.name || 'Ukjent' : 'Ikke satt'}
-            </div>
-            <div className="flex items-center">
-              <span className="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
-              Default 2: {isMounted && defaultProfile2 ? profiles.find(p => p.id === defaultProfile2)?.name || 'Ukjent' : 'Ikke satt'}
-            </div>
-          </div>
-        </div>
-        <div className="flex space-x-2">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
           <button
             onClick={handleClearAllProfiles}
-            className="px-3 py-2 text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors text-sm"
+            className="px-3 py-1.5 text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors text-sm"
           >
             Slett alle
           </button>
           <button
             onClick={handleSyncProfiles}
-            className="flex items-center px-3 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm"
+            className="flex items-center justify-center px-3 py-1.5 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors text-sm"
           >
             <svg className="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
             </svg>
             Synkroniser
           </button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <button
-
             onClick={handleLoadPredefined}
-            className="flex items-center px-3 py-2 bg-gray-100 text-gray-800 rounded-md hover:bg-gray-200 transition-colors text-sm"
+            className="flex items-center justify-center px-3 py-1.5 bg-gray-100 text-gray-800 rounded-md hover:bg-gray-200 transition-colors text-sm"
           >
             Predefined
           </button>
           <button
             onClick={handleNewVisualProfile}
-            className="flex items-center px-4 py-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors mr-2"
+            className="flex items-center justify-center px-3 py-1.5 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors text-sm"
           >
             <BarChart3 size={16} className="mr-2" />
             Visuell Editor
           </button>
+        </div>
+        <div className="flex justify-center">
           <button
             onClick={handleNewProfile}
-            className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+            className="flex items-center px-4 py-1.5 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-sm"
           >
             <Plus size={16} className="mr-2" />
             Ny Profil
