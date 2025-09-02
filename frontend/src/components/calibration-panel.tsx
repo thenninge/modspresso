@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Play, Square, RotateCcw, Save, AlertTriangle, CheckCircle, Send, Download } from 'lucide-react';
+import { Play, Square, RotateCcw, Save, AlertTriangle, CheckCircle, Send, Download, TestTube, Clock } from 'lucide-react';
 import { useWebSocket } from '@/hooks/use-websocket';
 import CalibrationChart from './calibration-chart';
 
@@ -18,7 +18,10 @@ interface CalibrationPanelProps {
 
 export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }) => {
   const [steps, setSteps] = useState<CalibrationStep[]>([]);
-  const { isConnected, sendMessage, lastMessage } = useWebSocket('ws://localhost:5005');
+  const [isTestingPressureCurve, setIsTestingPressureCurve] = useState(false);
+  const [currentTestPressure, setCurrentTestPressure] = useState<number | null>(null);
+  const [testDurationPerPressure, setTestDurationPerPressure] = useState<number>(3);
+  const { isConnected, sendMessage, lastMessage } = useWebSocket('ws://localhost:8008');
 
   // Load saved calibration data from localStorage
   React.useEffect(() => {
@@ -201,6 +204,99 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
     console.log('Sending calibration data to ESP32:', calibrationData);
   };
 
+  const testPressureCurve = async () => {
+    // Check if we have calibration data
+    const calibrationData: Record<number, number> = {};
+    steps.forEach(step => {
+      if (step.pressure !== null) {
+        calibrationData[step.dimLevel] = step.pressure;
+      }
+    });
+    
+    if (Object.keys(calibrationData).length === 0) {
+      alert('Ingen kalibreringsdata tilgjengelig! Kalibrer systemet først.');
+      return;
+    }
+
+    if (!isConnected) {
+      alert('Ikke tilkoblet backend! Sjekk tilkobling.');
+      return;
+    }
+
+    setIsTestingPressureCurve(true);
+    
+    // Test pressure levels from 0 to 10 bars
+    const testPressures = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    
+    for (let i = 0; i < testPressures.length; i++) {
+      const targetPressure = testPressures[i];
+      setCurrentTestPressure(targetPressure);
+      
+      // Calculate required dim level for this pressure using calibration data
+      const requiredDimLevel = calculateDimLevelForPressure(targetPressure, calibrationData);
+      
+      console.log(`Testing pressure ${targetPressure} bar -> Dim level: ${requiredDimLevel}%`);
+      
+      // Send command to ESP32 to set the dim level
+      sendMessage({
+        type: 'set_dim_level',
+        data: { level: requiredDimLevel }
+      });
+      
+      // Wait for user-specified duration at each pressure level
+      await new Promise(resolve => setTimeout(resolve, testDurationPerPressure * 1000));
+    }
+    
+    // Stop the pump at the end
+    sendMessage({
+      type: 'set_dim_level',
+      data: { level: 0 }
+    });
+    
+    setCurrentTestPressure(null);
+    setIsTestingPressureCurve(false);
+    
+    alert(`✅ Trykk-kurve test fullført!\n\nPumpen har kjørt gjennom alle trykknivåer 0-10 bar.\nHver trykknivå ble testet i ${testDurationPerPressure} sekunder.\nSjekk manometeret for å verifisere at kalibreringen er korrekt.`);
+  };
+
+  const calculateDimLevelForPressure = (targetPressure: number, calibrationData: Record<number, number>): number => {
+    if (targetPressure === 0) return 0;
+    
+    // Find the closest calibration points for interpolation
+    const levels = Object.keys(calibrationData).map(Number).sort((a, b) => a - b);
+    
+    if (levels.length === 0) return 0;
+    
+    // Find exact match
+    if (calibrationData[targetPressure] !== undefined) {
+      return targetPressure;
+    }
+    
+    // Find bounds for interpolation
+    let lowerLevel = levels[0];
+    let upperLevel = levels[levels.length - 1];
+    
+    for (let i = 0; i < levels.length - 1; i++) {
+      if (targetPressure >= levels[i] && targetPressure <= levels[i + 1]) {
+        lowerLevel = levels[i];
+        upperLevel = levels[i + 1];
+        break;
+      }
+    }
+    
+    const lowerPressure = calibrationData[lowerLevel];
+    const upperPressure = calibrationData[upperLevel];
+    
+    // Interpolate to find the dim level that would produce targetPressure
+    if (upperLevel === lowerLevel) return lowerLevel;
+    
+    const pressureRatio = (targetPressure - lowerPressure) / (upperPressure - lowerPressure);
+    const interpolatedLevel = lowerLevel + pressureRatio * (upperLevel - lowerLevel);
+    
+    // Round to nearest 5% for practical use
+    return Math.round(interpolatedLevel / 5) * 5;
+  };
+
   const completedSteps = steps.filter(step => step.completed).length;
   const progress = (completedSteps / steps.length) * 100;
 
@@ -348,17 +444,17 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
                   </div>
                   <div className="flex items-center space-x-2 flex-1">
                     <span className="text-sm text-gray-600">Trykk:</span>
-                                         <input
-                       type="number"
-                       value={step.pressure || ''}
-                       onChange={(e) => setPressure(step.dimLevel, parseFloat(e.target.value) || 0)}
-                       className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-black"
-                       placeholder="0.0"
-                       min="0"
-                       max="12"
-                       step="0.1"
-                       disabled={step.isRunning}
-                     />
+                    <input
+                      type="number"
+                      value={step.pressure || ''}
+                      onChange={(e) => setPressure(step.dimLevel, parseFloat(e.target.value) || 0)}
+                      className="w-20 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-black"
+                      placeholder="0.0"
+                      min="0"
+                      max="12"
+                      step="0.1"
+                      disabled={step.isRunning}
+                    />
                     <span className="text-sm text-gray-500">bar</span>
                     {step.completed && (
                       <CheckCircle size={16} className="text-green-500" />
@@ -418,6 +514,66 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
         />
       </div>
 
+      {/* Test Pressure Curve Section */}
+      <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <h3 className="text-lg font-semibold text-blue-800 mb-3">Test Trykk-kurve</h3>
+        
+        {/* Test Duration Setting */}
+        <div className="mb-4 p-3 bg-white border border-blue-200 rounded-lg">
+          <div className="flex items-center space-x-3">
+            <Clock size={20} className="text-blue-600" />
+            <div className="flex items-center space-x-2">
+              <label className="text-sm font-medium text-gray-700">
+                Test varighet per trykknivå:
+              </label>
+              <input
+                type="number"
+                value={testDurationPerPressure}
+                onChange={(e) => setTestDurationPerPressure(Math.max(1, Math.min(60, parseInt(e.target.value) || 3)))}
+                className="w-16 px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 text-black"
+                min="1"
+                max="60"
+                step="1"
+                disabled={isTestingPressureCurve}
+              />
+              <span className="text-sm text-gray-600">sekunder</span>
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Hvor lenge pumpen skal kjøre ved hvert trykknivå under testingen
+          </p>
+        </div>
+
+        {/* Test Button */}
+        <div className="flex justify-center">
+          <button
+            onClick={testPressureCurve}
+            disabled={completedSteps === 0 || isTestingPressureCurve}
+            className="flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-lg font-medium"
+          >
+            <TestTube size={20} className="mr-3" />
+            {isTestingPressureCurve ? 'Tester...' : 'Start Trykk-kurve Test'}
+          </button>
+        </div>
+
+        {/* Current Test Pressure Display */}
+        {isTestingPressureCurve && currentTestPressure !== null && (
+          <div className="mt-4 p-3 bg-blue-100 border border-blue-300 rounded-lg">
+            <div className="flex items-center justify-center">
+              <div className="animate-pulse mr-3">
+                <div className="w-4 h-4 bg-blue-600 rounded-full"></div>
+              </div>
+              <span className="text-lg font-semibold text-blue-800">
+                Tester trykk: {currentTestPressure} bar
+              </span>
+            </div>
+            <p className="text-sm text-blue-700 text-center mt-2">
+              Pumpen kjører automatisk gjennom alle trykknivåer 0-10 bar ({testDurationPerPressure}s per nivå)
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Instructions */}
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
         <div className="flex items-start">
@@ -428,11 +584,12 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
               <li>• Koble ESP32 til strøm og last opp firmware</li>
               <li>• Koble manometeret til trykksystemet</li>
               <li>• Start kalibrering for å initialisere feltene</li>
-              <li>• Klikk &quot;Start&quot; for hver Output-verdi du vil teste</li>
+              <li>• Klikk "Start" for hver Output-verdi du vil teste</li>
               <li>• Les av trykket på manometeret og registrer verdien</li>
-              <li>• Klikk &quot;Stopp&quot; når du er ferdig med testingen</li>
+              <li>• Klikk "Stopp" når du er ferdig med testingen</li>
               <li>• Gjenta for alle Output-verdier du vil kalibrere</li>
-              <li>• Klikk &quot;Lagre&quot; når du er ferdig</li>
+              <li>• Klikk "Lagre" når du er ferdig</li>
+              <li>• Juster test-varighet og bruk "Test Trykk-kurve" for å verifisere kalibreringen</li>
             </ul>
           </div>
         </div>
