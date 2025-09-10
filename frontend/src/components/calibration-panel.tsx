@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Play, Square, RotateCcw, Save, AlertTriangle, CheckCircle, Send, Download, TestTube, Clock } from 'lucide-react';
-import { useWebSocket } from '@/hooks/use-websocket';
+import { useWebBluetooth } from '@/hooks/use-web-bluetooth';
 import CalibrationChart from './calibration-chart';
 
 interface CalibrationStep {
@@ -21,7 +21,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
   const [isTestingPressureCurve, setIsTestingPressureCurve] = useState(false);
   const [currentTestPressure, setCurrentTestPressure] = useState<number | null>(null);
   const [testDurationPerPressure, setTestDurationPerPressure] = useState<number>(3);
-  const { isConnected, sendMessage, lastMessage } = useWebSocket('ws://localhost:8008');
+  const { isConnected, setDimLevel, setCalibrationData, status } = useWebBluetooth();
 
   // Load saved calibration data from localStorage
   React.useEffect(() => {
@@ -64,7 +64,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
     setSteps(newSteps);
   };
 
-  const startDimLevel = (dimLevel: number) => {
+  const startDimLevel = async (dimLevel: number) => {
     // Stop all other dim levels first
     const updatedSteps = steps.map(step => ({
       ...step,
@@ -73,14 +73,11 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
     setSteps(updatedSteps);
     
     // Send command to ESP32 via WebSocket
-    sendMessage({
-      type: 'set_dim_level',
-      data: { level: dimLevel }
-    });
+    await setDimLevel(dimLevel);
     console.log(`Starting dim level ${dimLevel}%`);
   };
 
-  const stopDimLevel = (dimLevel: number) => {
+  const stopDimLevel = async (dimLevel: number) => {
     const updatedSteps = steps.map(step => ({
       ...step,
       isRunning: false
@@ -88,10 +85,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
     setSteps(updatedSteps);
     
     // Send command to ESP32 via WebSocket
-    sendMessage({
-      type: 'set_dim_level',
-      data: { level: 0 }
-    });
+    await setDimLevel(0);
     console.log(`Stopping dim level ${dimLevel}%`);
   };
 
@@ -178,7 +172,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
     onComplete(calibrationData);
   };
 
-  const sendToESP32 = () => {
+  const sendToESP32 = async () => {
     const calibrationData: Record<number, number> = {};
     steps.forEach(step => {
       if (step.pressure !== null) {
@@ -196,10 +190,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
     alert(loadingMessage);
     
     // Send calibration data to ESP32 via WebSocket
-    sendMessage({
-      type: 'set_calibration_data',
-      data: { calibration: calibrationData }
-    });
+    await setCalibrationData(calibrationData);
     
     console.log('Sending calibration data to ESP32:', calibrationData);
   };
@@ -248,10 +239,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
     }
     
     // Stop the pump at the end
-    sendMessage({
-      type: 'set_dim_level',
-      data: { level: 0 }
-    });
+    await setDimLevel(0);
     
     setCurrentTestPressure(null);
     setIsTestingPressureCurve(false);
@@ -322,38 +310,16 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
     }
   }, []);
 
-  // Handle WebSocket messages from ESP32
+  // Handle calibration status updates from ESP32
   React.useEffect(() => {
-    if (lastMessage && lastMessage.type === 'calibration_data_set') {
-      const data = lastMessage.data as {
-        status: string;
-        valid_points?: number;
-        total_points?: number;
-        error?: string;
-      };
-      
-      if (data.status === 'calibration_data_set') {
-        // Success - save to localStorage
-        const calibrationData: Record<number, number> = {};
-        steps.forEach(step => {
-          if (step.pressure !== null) {
-            calibrationData[step.dimLevel] = step.pressure;
-          }
-        });
-        
-        const uploadData = {
-          data: calibrationData,
-          timestamp: new Date().toISOString()
-        };
-        localStorage.setItem('modspresso-calibration-uploaded', JSON.stringify(uploadData));
-        setLastUploaded(uploadData);
-        
-        alert(`✅ Kalibrering opplastet til ESP32!\n\nValiderte punkter: ${data.valid_points}/${data.total_points}\nStatus: Kalibrert`);
-      } else if (data.status === 'calibration_error') {
-        alert(`❌ Feil ved opplasting til ESP32!\n\nFeil: ${data.error}\nValiderte punkter: ${data.valid_points}/${data.total_points}`);
+    if (status && status.is_calibrated) {
+      // ESP32 is calibrated - we can show success message
+      const completedSteps = steps.filter(step => step.completed).length;
+      if (completedSteps > 0) {
+        console.log(`✅ ESP32 kalibrert med ${completedSteps} punkter`);
       }
     }
-  }, [lastMessage, steps]);
+  }, [status, steps]);
 
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
