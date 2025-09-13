@@ -100,10 +100,16 @@ interface ESP32Status {
   is_calibrated: boolean;
 }
 
+interface DeviceInfo {
+  id: string;
+  name: string;
+  connected: boolean;
+}
+
 export const useWebBluetooth = () => {
   const [isSupported, setIsSupported] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
-  const [device, setDevice] = useState<BluetoothDevice | null>(null);
+  const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [status, setStatus] = useState<ESP32Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -122,7 +128,7 @@ export const useWebBluetooth = () => {
     }
   }, []);
 
-  const scanForDevices = useCallback(async () => {
+  const scanForDevices = useCallback(async (): Promise<DeviceInfo[]> => {
     if (!isSupported) {
       setError('Web Bluetooth ikke støttet');
       return [];
@@ -141,7 +147,7 @@ export const useWebBluetooth = () => {
         optionalServices: [ESP32_SERVICE_UUID]
       });
 
-      const deviceInfo: BluetoothDevice = {
+      const deviceInfo: DeviceInfo = {
         id: bluetoothDevice.id,
         name: bluetoothDevice.name || 'Unknown Device',
         connected: bluetoothDevice.gatt?.connected || false
