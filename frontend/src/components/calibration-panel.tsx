@@ -229,10 +229,7 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
       console.log(`Testing pressure ${targetPressure} bar -> Dim level: ${requiredDimLevel}%`);
       
       // Send command to ESP32 to set the dim level
-      sendMessage({
-        type: 'set_dim_level',
-        data: { level: requiredDimLevel }
-      });
+      await setDimLevel(requiredDimLevel);
       
       // Wait for user-specified duration at each pressure level
       await new Promise(resolve => setTimeout(resolve, testDurationPerPressure * 1000));
