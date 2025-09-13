@@ -550,12 +550,12 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }
               <li>• Koble ESP32 til strøm og last opp firmware</li>
               <li>• Koble manometeret til trykksystemet</li>
               <li>• Start kalibrering for å initialisere feltene</li>
-              <li>• Klikk "Start" for hver Output-verdi du vil teste</li>
+              <li>• Klikk &quot;Start&quot; for hver Output-verdi du vil teste</li>
               <li>• Les av trykket på manometeret og registrer verdien</li>
-              <li>• Klikk "Stopp" når du er ferdig med testingen</li>
+              <li>• Klikk &quot;Stopp&quot; når du er ferdig med testingen</li>
               <li>• Gjenta for alle Output-verdier du vil kalibrere</li>
-              <li>• Klikk "Lagre" når du er ferdig</li>
-              <li>• Juster test-varighet og bruk "Test Trykk-kurve" for å verifisere kalibreringen</li>
+              <li>• Klikk &quot;Lagre&quot; når du er ferdig</li>
+              <li>• Juster test-varighet og bruk &quot;Test Trykk-kurve&quot; for å verifisere kalibreringen</li>
             </ul>
           </div>
         </div>

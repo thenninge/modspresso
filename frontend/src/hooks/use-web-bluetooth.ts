@@ -81,7 +81,7 @@ export const useWebBluetooth = () => {
     }
   }, [isSupported]);
 
-  const connectToDevice = useCallback(async (deviceId?: string) => {
+  const connectToDevice = useCallback(async () => {
     if (!isSupported) {
       setError('Web Bluetooth ikke støttet');
       return false;

@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Coffee, Settings, BarChart3, Play, Plus, SlidersHorizontal, X, Bot } from 'lucide-react';
+import { Coffee, Settings, BarChart3, Play, Plus, SlidersHorizontal, X } from 'lucide-react';
+import Image from 'next/image';
 import ProfileEditor from '@/components/profile-editor';
 import { VisualProfileEditor } from '@/components/visual-profile-editor';
 import PressureChart from '@/components/pressure-chart';
@@ -105,11 +106,11 @@ export default function Home() {
     setShowVisualEditor(true);
   };
 
-  const handleClearAllProfiles = () => {
-    if (confirm('Er du sikker på at du vil slette alle profiler?')) {
-      setProfiles([]);
-    }
-  };
+  // const handleClearAllProfiles = () => {
+  //   if (confirm('Er du sikker på at du vil slette alle profiler?')) {
+  //     setProfiles([]);
+  //   }
+  // };
 
   const handleStartProfile = (profile: Profile) => {
     // TODO: Send profile to ESP32 via WebSocket
@@ -443,7 +444,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center">
-              <img src="/icon2.png" alt="Modspresso" className="h-8 w-12 mr-3" />
+              <Image src="/icon2.png" alt="Modspresso" width={48} height={32} className="mr-3" />
               <h1 className="text-xl font-bold text-gray-900">Modspresso</h1>
             </div>
             <div className="flex items-center space-x-4">

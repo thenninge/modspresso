@@ -1,8 +1,13 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Bluetooth, WifiOff, RefreshCw, Settings, CheckCircle, XCircle, AlertCircle, Wifi } from 'lucide-react';
+import { Bluetooth, WifiOff, RefreshCw, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { useWebBluetooth } from '@/hooks/use-web-bluetooth';
+
+interface BluetoothDevice {
+  id: string;
+  name: string;
+}
 
 interface BluetoothSettingsProps {
   onConnectionChange?: (connected: boolean) => void;
@@ -11,8 +16,7 @@ interface BluetoothSettingsProps {
 export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({ 
   onConnectionChange 
 }) => {
-  const [devices, setDevices] = useState<any[]>([]);
-  const [selectedDevice, setSelectedDevice] = useState<any>(null);
+  const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   
   // Use Web Bluetooth hook
   const {
@@ -38,10 +42,10 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
     setDevices(foundDevices);
   };
 
-  const handleConnect = async (deviceToConnect?: any) => {
+  const handleConnect = async () => {
     const success = await connectToDevice();
     if (success) {
-      setSelectedDevice(device);
+      // Device connected successfully
       // Get initial status
       await getStatus();
     }
@@ -49,7 +53,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
 
   const handleDisconnect = async () => {
     await disconnect();
-    setSelectedDevice(null);
+    // Device disconnected
     setDevices([]);
   };
 
@@ -178,7 +182,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
             <Bluetooth className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <p className="text-gray-600">Ingen enheter funnet</p>
             <p className="text-sm text-gray-500 mt-2">
-              Klikk "Søk etter enheter" for å finne ESP32-en
+              Klikk &quot;Søk etter enheter&quot; for å finne ESP32-en
             </p>
           </div>
         )}
@@ -198,7 +202,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
                   </div>
                 </div>
                 <button
-                  onClick={() => handleConnect(device)}
+                  onClick={handleConnect}
                   disabled={isConnected}
                   className="px-3 py-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-md hover:bg-blue-200 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
                 >
