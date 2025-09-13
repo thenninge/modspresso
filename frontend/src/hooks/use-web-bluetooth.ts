@@ -2,15 +2,91 @@
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 
+// Web Bluetooth API type declarations
+declare global {
+  interface BluetoothDevice {
+    id: string;
+    name: string;
+    connected: boolean;
+    gatt?: BluetoothRemoteGATTServer;
+  }
+
+  interface BluetoothRemoteGATTServer {
+    connected: boolean;
+    device: BluetoothDevice;
+    connect(): Promise<BluetoothRemoteGATTServer>;
+    disconnect(): void;
+    getPrimaryService(service: string | number): Promise<BluetoothRemoteGATTService>;
+  }
+
+  interface BluetoothRemoteGATTService {
+    device: BluetoothDevice;
+    uuid: string;
+    getCharacteristic(characteristic: string | number): Promise<BluetoothRemoteGATTCharacteristic>;
+  }
+
+  interface BluetoothRemoteGATTCharacteristic {
+    service: BluetoothRemoteGATTService;
+    uuid: string;
+    properties: BluetoothCharacteristicProperties;
+    readValue(): Promise<DataView>;
+    writeValue(value: BufferSource): Promise<void>;
+    startNotifications(): Promise<BluetoothRemoteGATTCharacteristic>;
+    stopNotifications(): Promise<BluetoothRemoteGATTCharacteristic>;
+    addEventListener(type: string, listener: (event: Event) => void): void;
+    removeEventListener(type: string, listener: (event: Event) => void): void;
+  }
+
+  interface BluetoothCharacteristicProperties {
+    broadcast: boolean;
+    read: boolean;
+    writeWithoutResponse: boolean;
+    write: boolean;
+    notify: boolean;
+    indicate: boolean;
+    authenticatedSignedWrites: boolean;
+    reliableWrite: boolean;
+    writableAuxiliaries: boolean;
+  }
+
+  interface Navigator {
+    bluetooth: Bluetooth;
+  }
+
+  interface Bluetooth {
+    requestDevice(options: RequestDeviceOptions): Promise<BluetoothDevice>;
+  }
+
+  interface RequestDeviceOptions {
+    filters?: BluetoothLEScanFilter[];
+    optionalServices?: (string | number)[];
+    acceptAllDevices?: boolean;
+  }
+
+  interface BluetoothLEScanFilter {
+    services?: (string | number)[];
+    name?: string;
+    namePrefix?: string;
+    manufacturerData?: BluetoothManufacturerDataFilter[];
+    serviceData?: BluetoothServiceDataFilter[];
+  }
+
+  interface BluetoothManufacturerDataFilter {
+    companyIdentifier: number;
+    dataPrefix?: BufferSource;
+    mask?: BufferSource;
+  }
+
+  interface BluetoothServiceDataFilter {
+    service: string | number;
+    dataPrefix?: BufferSource;
+    mask?: BufferSource;
+  }
+}
+
 // ESP32 BLE Service and Characteristic UUIDs
 const ESP32_SERVICE_UUID = '4fafc201-1fb5-459e-8fcc-c5c9c331914b';
 const ESP32_CHARACTERISTIC_UUID = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
-
-interface BluetoothDevice {
-  id: string;
-  name: string;
-  connected: boolean;
-}
 
 interface ESP32Status {
   current_pressure: number;
