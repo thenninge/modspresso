@@ -29,6 +29,7 @@ declare global {
     service: BluetoothRemoteGATTService;
     uuid: string;
     properties: BluetoothCharacteristicProperties;
+    value?: DataView;
     readValue(): Promise<DataView>;
     writeValue(value: BufferSource): Promise<void>;
     startNotifications(): Promise<BluetoothRemoteGATTCharacteristic>;
@@ -194,7 +195,7 @@ export const useWebBluetooth = () => {
       await characteristic.startNotifications();
       
       characteristic.addEventListener('characteristicvaluechanged', (event) => {
-        const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
+        const value = (event.target as unknown as BluetoothRemoteGATTCharacteristic).value;
         if (value) {
           const decoder = new TextDecoder();
           const jsonString = decoder.decode(value);
