@@ -9,6 +9,8 @@ declare global {
     name: string;
     connected: boolean;
     gatt?: BluetoothRemoteGATTServer;
+    addEventListener(type: string, listener: (event: Event) => void): void;
+    removeEventListener(type: string, listener: (event: Event) => void): void;
   }
 
   interface BluetoothRemoteGATTServer {
