@@ -6,10 +6,11 @@
 #include <ArduinoJson.h>
 
 // Pin definitions
-#define DIMMER_PIN 25        // GPIO25 for AC dimmer control
-#define LED_PIN 2           // Built-in LED for status
-#define BUTTON_1_PIN 26     // GPIO26 for hardware button 1 (Profile 1)
-#define BUTTON_2_PIN 27     // GPIO27 for hardware button 2 (Profile 2)
+#define ZERO_CROSS_PIN 33   // GPIO33 (D33) for zero-cross detection (RobotDyn Mod-Dimmer-5A-1L)
+#define DIMMER_PIN 25       // GPIO25 (D25) for AC dimmer control (gate pin - PWM output)
+#define LED_PIN 2           // GPIO2 for status LED (built-in LED)
+#define BUTTON_1_PIN 18     // GPIO18 (D18) for hardware button 1 (Program 1)
+#define BUTTON_2_PIN 19     // GPIO19 (D19) for hardware button 2 (Program 2)
 // Note: No pressure sensor pin - using manual manometer reading
 
 // Bluetooth service and characteristic UUIDs
@@ -69,10 +70,58 @@ bool isCalibrated = false;
 float pressureOffset = 0.0;
 float pressureScale = 1.0;
 
-// PWM configuration for dimmer
-const int pwmChannel = 0;
-const int pwmFreq = 50;  // 50Hz for AC dimmer
-const int pwmResolution = 8; // 8-bit resolution (0-255)
+// Zero-cross dimmer configuration (RobotDyn Mod-Dimmer-5A-1L)
+volatile int dimLevel = 0;  // Current dim level (0-100)
+volatile unsigned long zeroCrossTime = 0;  // Time of last zero-cross detection
+hw_timer_t* dimmerTimer = NULL;  // Hardware timer for phase-angle control
+const int AC_FREQ = 50;  // 50Hz AC frequency
+const unsigned long HALF_WAVE_TIME = 1000000 / AC_FREQ / 2;  // Time for half wave in microseconds (10000us for 50Hz)
+
+// ISR for zero-cross detection
+void IRAM_ATTR zeroCrossISR() {
+  zeroCrossTime = micros();
+  
+  if (dimLevel > 0 && dimLevel < 100) {
+    // Calculate delay based on dim level
+    // At 0%: delay = half wave (10000us), at 100%: delay = 0
+    unsigned long delay = HALF_WAVE_TIME - ((dimLevel * HALF_WAVE_TIME) / 100);
+    
+    // Start hardware timer to trigger TRIAC after delay
+    timerWrite(dimmerTimer, 0);  // Reset timer
+    timerAlarmWrite(dimmerTimer, delay, false);  // Set alarm with delay
+    timerAlarmEnable(dimmerTimer);
+  } else if (dimLevel >= 100) {
+    // 100% - turn on immediately (no phase cutting)
+    // Note: For 100%, we can use a simple digitalWrite pulse
+    // The TRIAC will latch and remain on for the full cycle
+    digitalWrite(DIMMER_PIN, HIGH);
+    // Use timer to turn off after short pulse (100us)
+    timerWrite(dimmerTimer, 0);
+    timerAlarmWrite(dimmerTimer, 100, false);  // 100 microseconds
+    timerAlarmEnable(dimmerTimer);
+  }
+  // If dimLevel == 0, do nothing (remain off)
+}
+
+// ISR for timer - triggers TRIAC gate or turns it off after pulse
+void IRAM_ATTR triggerTRIAC() {
+  static bool pulseOn = false;
+  
+  if (!pulseOn) {
+    // Turn on TRIAC gate
+    digitalWrite(DIMMER_PIN, HIGH);
+    pulseOn = true;
+    
+    // Schedule turn-off after 100us
+    timerWrite(dimmerTimer, 0);
+    timerAlarmWrite(dimmerTimer, 100, false);
+  } else {
+    // Turn off TRIAC gate (pulse complete)
+    digitalWrite(DIMMER_PIN, LOW);
+    pulseOn = false;
+    timerAlarmDisable(dimmerTimer);  // Disable until next zero-cross
+  }
+}
 
 // Function declarations
 void handleCommand(const char* command);
@@ -126,16 +175,29 @@ void setup() {
 
   // Initialize pins
   pinMode(LED_PIN, OUTPUT);
-  pinMode(DIMMER_PIN, OUTPUT);
+  pinMode(ZERO_CROSS_PIN, INPUT_PULLUP);  // Zero-cross input from dimmer module (pull-up for safety)
+  pinMode(DIMMER_PIN, OUTPUT);  // Gate pin for TRIAC control
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);  // Internal pull-up resistor
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);  // Internal pull-up resistor
   digitalWrite(LED_PIN, LOW);
-  digitalWrite(DIMMER_PIN, LOW);
+  digitalWrite(DIMMER_PIN, LOW);  // Start with gate off
 
-  // Configure PWM for dimmer
-  ledcSetup(pwmChannel, pwmFreq, pwmResolution);
-  ledcAttachPin(DIMMER_PIN, pwmChannel);
-  ledcWrite(pwmChannel, 0); // Start with 0% duty cycle
+  // Initialize zero-cross interrupt for phase-angle dimming
+  attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, RISING);  // RISING edge on zero-cross
+  
+  // Initialize hardware timer for phase-angle delay
+  dimmerTimer = timerBegin(0, 80, true);  // Timer 0, prescaler 80 (1MHz = 1 microsecond per tick), count up
+  timerAttachInterrupt(dimmerTimer, &triggerTRIAC, true);  // Attach ISR (edge = true for edge-triggered)
+  timerAlarmWrite(dimmerTimer, 10000, false);  // Initial delay (will be updated dynamically)
+  timerAlarmDisable(dimmerTimer);  // Disabled until needed
+  
+  dimLevel = 0;  // Start with 0% (off)
+  
+  Serial.println("Zero-cross dimmer initialized:");
+  Serial.println("  Zero-cross pin: GPIO" + String(ZERO_CROSS_PIN));
+  Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
+  Serial.println("  AC frequency: " + String(AC_FREQ) + "Hz");
+  Serial.println("  Half-wave time: " + String(HALF_WAVE_TIME) + " microseconds");
 
   // Initialize Bluetooth
   BLEDevice::init("EspressoProfiler-ESP32");
@@ -325,11 +387,13 @@ void setDimLevel(int level) {
   // Clamp level between 0 and 100
   level = constrain(level, 0, 100);
   
-  // Convert percentage to PWM value (0-255)
-  int pwmValue = map(level, 0, 100, 0, 255);
-  ledcWrite(pwmChannel, pwmValue);
+  // Set dim level (zero-cross ISR will handle phase-angle control)
+  // dimLevel is volatile to ensure safe access from ISR
+  noInterrupts();  // Disable interrupts briefly to safely update dimLevel
+  dimLevel = level;
+  interrupts();    // Re-enable interrupts
   
-  Serial.println("Dim level set to: " + String(level) + "% (PWM: " + String(pwmValue) + ")");
+  Serial.println("Dim level set to: " + String(level) + "% (zero-cross controlled)");
 }
 
 float getCurrentPressure() {
