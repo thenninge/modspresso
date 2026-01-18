@@ -234,6 +234,89 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Pin Configuration */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-medium text-gray-800 mb-4">ESP32 Pin-konfigurasjon</h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Oversikt over hvilke pins på ESP32 som skal kobles til dimmer-modul og brytere:
+        </p>
+        
+        <div className="space-y-4">
+          {/* Dimmer Section */}
+          <div>
+            <h4 className="text-md font-semibold text-gray-700 mb-2">AC Dimmer (RobotDyn Mod-Dimmer-5A-1L)</h4>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-700 font-medium">Zero-cross input:</span>
+                <span className="font-mono bg-white px-2 py-1 rounded border border-blue-300 text-blue-700">
+                  GPIO33 (D33)
+                </span>
+              </div>
+              <div className="text-xs text-gray-600 ml-2">
+                → Kobles til zero-cross output på dimmer-modulen
+              </div>
+              <div className="flex items-center justify-between text-sm mt-3">
+                <span className="text-gray-700 font-medium">Gate output (PWM):</span>
+                <span className="font-mono bg-white px-2 py-1 rounded border border-blue-300 text-blue-700">
+                  GPIO25 (D25)
+                </span>
+              </div>
+              <div className="text-xs text-gray-600 ml-2">
+                → Kobles til gate/kontroll-pin på dimmer-modulen
+              </div>
+            </div>
+          </div>
+
+          {/* Buttons Section */}
+          <div>
+            <h4 className="text-md font-semibold text-gray-700 mb-2">Hardware-brytere</h4>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-700 font-medium">Program 1 (Button 1):</span>
+                <span className="font-mono bg-white px-2 py-1 rounded border border-green-300 text-green-700">
+                  GPIO18 (D18)
+                </span>
+              </div>
+              <div className="text-xs text-gray-600 ml-2">
+                → Kobles til første bryter for å starte Program 1
+              </div>
+              <div className="flex items-center justify-between text-sm mt-3">
+                <span className="text-gray-700 font-medium">Program 2 (Button 2):</span>
+                <span className="font-mono bg-white px-2 py-1 rounded border border-green-300 text-green-700">
+                  GPIO19 (D19)
+                </span>
+              </div>
+              <div className="text-xs text-gray-600 ml-2">
+                → Kobles til andre bryter for å starte Program 2
+              </div>
+            </div>
+          </div>
+
+          {/* Other Pins */}
+          <div>
+            <h4 className="text-md font-semibold text-gray-700 mb-2">Andre pins</h4>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-700 font-medium">Status LED:</span>
+                <span className="font-mono bg-white px-2 py-1 rounded border border-gray-300 text-gray-700">
+                  GPIO2
+                </span>
+              </div>
+              <div className="text-xs text-gray-600 ml-2">
+                → Built-in LED på ESP32 (ikke nødvendig å koble ekstra)
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <p className="text-xs text-yellow-800">
+            <strong>Viktig:</strong> Sørg for at alle koblinger er gjort riktig før oppstart. 
+            Feilaktig kobling kan skade ESP32 eller dimmer-modulen.
+          </p>
+        </div>
+      </div>
     </div>
   );
 };

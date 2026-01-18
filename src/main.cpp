@@ -4,6 +4,9 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <ArduinoJson.h>
+#include <WiFi.h>
+#include <HTTPUpdate.h>
+#include <WiFiClientSecure.h>
 
 // Pin definitions
 #define ZERO_CROSS_PIN 33   // GPIO33 (D33) for zero-cross detection (RobotDyn Mod-Dimmer-5A-1L)
@@ -70,6 +73,12 @@ bool isCalibrated = false;
 float pressureOffset = 0.0;
 float pressureScale = 1.0;
 
+// WiFi and OTA configuration
+char wifiSSID[64] = "";  // WiFi SSID (set via BLE command)
+char wifiPassword[64] = "";  // WiFi password (set via BLE command)
+bool wifiConfigured = false;
+bool wifiConnected = false;
+
 // Zero-cross dimmer configuration (RobotDyn Mod-Dimmer-5A-1L)
 volatile int dimLevel = 0;  // Current dim level (0-100)
 volatile unsigned long zeroCrossTime = 0;  // Time of last zero-cross detection
@@ -125,6 +134,9 @@ void IRAM_ATTR triggerTRIAC() {
 
 // Function declarations
 void handleCommand(const char* command);
+void setupWiFi();
+void performOTAUpdate(const char* firmwareUrl);
+void setWiFiCredentials(const char* ssid, const char* password);
 void startProfile(JsonObject profile);
 void stopProfile();
 void executeProfile();
@@ -177,8 +189,9 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   pinMode(ZERO_CROSS_PIN, INPUT_PULLUP);  // Zero-cross input from dimmer module (pull-up for safety)
   pinMode(DIMMER_PIN, OUTPUT);  // Gate pin for TRIAC control
-  pinMode(BUTTON_1_PIN, INPUT_PULLUP);  // Internal pull-up resistor
-  pinMode(BUTTON_2_PIN, INPUT_PULLUP);  // Internal pull-up resistor
+  // Button pins with internal pull-up (button connects to GND when pressed)
+  pinMode(BUTTON_1_PIN, INPUT_PULLUP);  // GPIO18 - Button 1 (LOW = pressed, HIGH = not pressed)
+  pinMode(BUTTON_2_PIN, INPUT_PULLUP);  // GPIO19 - Button 2 (LOW = pressed, HIGH = not pressed)
   digitalWrite(LED_PIN, LOW);
   digitalWrite(DIMMER_PIN, LOW);  // Start with gate off
 
@@ -313,6 +326,21 @@ void handleCommand(const char* command) {
     setDefaultProfile(button, profileId);
   } else if (cmd == "get_profile_status") {
     sendProfileStatus();
+  } else if (cmd == "set_wifi_credentials") {
+    const char* ssid = doc["ssid"];
+    const char* password = doc["password"];
+    setWiFiCredentials(ssid, password);
+  } else if (cmd == "ota_update") {
+    const char* firmwareUrl = doc["firmware_url"];
+    if (firmwareUrl) {
+      performOTAUpdate(firmwareUrl);
+    } else {
+      Serial.println("ERROR: firmware_url not provided");
+      DynamicJsonDocument response(256);
+      response["status"] = "ota_error";
+      response["error"] = "firmware_url not provided";
+      sendResponse(response);
+    }
   }
 }
 
@@ -572,10 +600,19 @@ void checkHardwareButtons() {
   // Check button 1 (Profile 1)
   if (button1State != lastButton1State) {
     if (currentTime - lastButton1Time > DEBOUNCE_DELAY) {
-      if (button1State == LOW && !isRunning && defaultProfile1 != 255) {
-        // Button 1 pressed - start default profile 1
-        Serial.println("Button 1 pressed - starting default profile 1");
-        startDefaultProfile(1);
+      if (button1State == LOW) {
+        Serial.println("[BUTTON] Button 1 pressed (GPIO18)");
+        if (!isRunning && defaultProfile1 != 255) {
+          // Button 1 pressed - start default profile 1
+          Serial.println("Starting default profile 1 (ID: " + String(defaultProfile1) + ")");
+          startDefaultProfile(1);
+        } else if (defaultProfile1 == 255) {
+          Serial.println("No default profile set for button 1 (set via BLE)");
+        } else {
+          Serial.println("Button ignored - profile already running");
+        }
+      } else {
+        Serial.println("[BUTTON] Button 1 released (GPIO18)");
       }
       lastButton1Time = currentTime;
     }
@@ -585,10 +622,19 @@ void checkHardwareButtons() {
   // Check button 2 (Profile 2)
   if (button2State != lastButton2State) {
     if (currentTime - lastButton2Time > DEBOUNCE_DELAY) {
-      if (button2State == LOW && !isRunning && defaultProfile2 != 255) {
-        // Button 2 pressed - start default profile 2
-        Serial.println("Button 2 pressed - starting default profile 2");
-        startDefaultProfile(2);
+      if (button2State == LOW) {
+        Serial.println("[BUTTON] Button 2 pressed (GPIO19)");
+        if (!isRunning && defaultProfile2 != 255) {
+          // Button 2 pressed - start default profile 2
+          Serial.println("Starting default profile 2 (ID: " + String(defaultProfile2) + ")");
+          startDefaultProfile(2);
+        } else if (defaultProfile2 == 255) {
+          Serial.println("No default profile set for button 2 (set via BLE)");
+        } else {
+          Serial.println("Button ignored - profile already running");
+        }
+      } else {
+        Serial.println("[BUTTON] Button 2 released (GPIO19)");
       }
       lastButton2Time = currentTime;
     }
@@ -727,5 +773,141 @@ void sendResponse(DynamicJsonDocument& doc) {
     pCharacteristic->notify();
     
     Serial.println("Sent: " + jsonString);
+  }
+}
+
+// WiFi and OTA functions
+void setWiFiCredentials(const char* ssid, const char* password) {
+  if (ssid && strlen(ssid) > 0) {
+    strncpy(wifiSSID, ssid, sizeof(wifiSSID) - 1);
+    wifiSSID[sizeof(wifiSSID) - 1] = '\0';
+    
+    if (password) {
+      strncpy(wifiPassword, password, sizeof(wifiPassword) - 1);
+      wifiPassword[sizeof(wifiPassword) - 1] = '\0';
+    } else {
+      wifiPassword[0] = '\0';
+    }
+    
+    wifiConfigured = true;
+    Serial.println("WiFi credentials set: SSID=" + String(wifiSSID));
+    
+    // Send confirmation
+    DynamicJsonDocument response(256);
+    response["status"] = "wifi_credentials_set";
+    response["ssid"] = wifiSSID;
+    sendResponse(response);
+    
+    // Try to connect
+    setupWiFi();
+  } else {
+    Serial.println("ERROR: Invalid WiFi SSID");
+    DynamicJsonDocument response(256);
+    response["status"] = "wifi_error";
+    response["error"] = "Invalid SSID";
+    sendResponse(response);
+  }
+}
+
+void setupWiFi() {
+  if (!wifiConfigured || strlen(wifiSSID) == 0) {
+    Serial.println("WiFi not configured");
+    return;
+  }
+  
+  Serial.println("Connecting to WiFi: " + String(wifiSSID));
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(wifiSSID, strlen(wifiPassword) > 0 ? wifiPassword : NULL);
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    wifiConnected = true;
+    Serial.println("");
+    Serial.println("WiFi connected!");
+    Serial.println("IP address: " + WiFi.localIP().toString());
+    
+    DynamicJsonDocument response(256);
+    response["status"] = "wifi_connected";
+    response["ip"] = WiFi.localIP().toString();
+    sendResponse(response);
+  } else {
+    wifiConnected = false;
+    Serial.println("");
+    Serial.println("WiFi connection failed!");
+    
+    DynamicJsonDocument response(256);
+    response["status"] = "wifi_error";
+    response["error"] = "Connection failed";
+    sendResponse(response);
+  }
+}
+
+void performOTAUpdate(const char* firmwareUrl) {
+  Serial.println("Starting OTA update from: " + String(firmwareUrl));
+  
+  // Ensure WiFi is connected
+  if (!wifiConnected) {
+    if (wifiConfigured) {
+      setupWiFi();
+      if (!wifiConnected) {
+        Serial.println("ERROR: WiFi not connected. Cannot perform OTA update.");
+        DynamicJsonDocument response(256);
+        response["status"] = "ota_error";
+        response["error"] = "WiFi not connected";
+        sendResponse(response);
+        return;
+      }
+    } else {
+      Serial.println("ERROR: WiFi not configured. Cannot perform OTA update.");
+      DynamicJsonDocument response(256);
+      response["status"] = "ota_error";
+      response["error"] = "WiFi not configured";
+      sendResponse(response);
+      return;
+    }
+  }
+  
+  // Send status update
+  DynamicJsonDocument response(256);
+  response["status"] = "ota_started";
+  response["url"] = firmwareUrl;
+  sendResponse(response);
+  
+  // Perform OTA update
+  httpUpdate.setLedPin(LED_PIN, LOW);
+  
+  // Check if URL is HTTPS
+  String urlStr = String(firmwareUrl);
+  t_httpUpdate_return ret;
+  
+  if (urlStr.startsWith("https://")) {
+    // For HTTPS, use WiFiClientSecure (disable certificate validation for simplicity)
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure();  // Not recommended for production, but simpler for OTA
+    ret = httpUpdate.update(secureClient, firmwareUrl);
+  } else {
+    // For HTTP, use regular WiFiClient
+    WiFiClient client;
+    ret = httpUpdate.update(client, firmwareUrl);
+  }
+  
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.println("OTA update failed: " + httpUpdate.getLastErrorString());
+      // Note: Can't send response here as device may have rebooted
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("OTA update: No updates available");
+      break;
+    case HTTP_UPDATE_OK:
+      Serial.println("OTA update successful! Device will reboot.");
+      // Device will reboot automatically
+      break;
   }
 }
