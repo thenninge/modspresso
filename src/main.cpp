@@ -155,6 +155,7 @@ bool storeProfile(uint8_t id, JsonObject profileData);
 void setDefaultProfile(int button, uint8_t profileId);
 void startDefaultProfile(int button);
 void sendResponse(DynamicJsonDocument& doc);
+void sendLogMessage(const char* message, const char* level = "info");
 
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
@@ -253,6 +254,28 @@ void setup() {
 }
 
 void loop() {
+  // Handle Serial input for testing (read JSON commands from Serial Monitor)
+  static String serialBuffer = "";
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      // End of command
+      if (serialBuffer.length() > 0) {
+        serialBuffer.trim();
+        String logMsg = ">>> [SERIAL] Received: " + serialBuffer;
+        Serial.println();
+        Serial.println(logMsg);
+        sendLogMessage(logMsg.c_str(), "debug");
+        handleCommand(serialBuffer.c_str());
+        Serial.println(">>> [SERIAL] Done");
+        sendLogMessage(">>> [SERIAL] Done", "debug");
+        serialBuffer = "";
+      }
+    } else {
+      serialBuffer += c;
+    }
+  }
+
   // Handle Bluetooth connection
   if (!deviceConnected && oldDeviceConnected) {
     delay(500); // Give the Bluetooth stack the chance to get things ready
@@ -421,7 +444,9 @@ void setDimLevel(int level) {
   dimLevel = level;
   interrupts();    // Re-enable interrupts
   
-  Serial.println("Dim level set to: " + String(level) + "% (zero-cross controlled)");
+  String logMsg = "Dim level set to: " + String(level) + "% (zero-cross controlled)";
+  Serial.println(logMsg);
+  sendLogMessage(logMsg.c_str(), "info");
 }
 
 float getCurrentPressure() {
@@ -774,6 +799,25 @@ void sendResponse(DynamicJsonDocument& doc) {
     
     Serial.println("Sent: " + jsonString);
   }
+}
+
+// Send log message via BLE (for Serial Monitor in webapp)
+void sendLogMessage(const char* message, const char* level) {
+  if (deviceConnected) {
+    DynamicJsonDocument logDoc(512);
+    logDoc["type"] = "serial_log";
+    logDoc["message"] = message;
+    logDoc["level"] = level;  // "info", "warn", "error", "debug"
+    logDoc["timestamp"] = millis();
+    
+    String jsonString;
+    serializeJson(logDoc, jsonString);
+    
+    pCharacteristic->setValue(jsonString.c_str());
+    pCharacteristic->notify();
+  }
+  // Always print to Serial as well
+  Serial.println(message);
 }
 
 // WiFi and OTA functions

@@ -106,6 +106,12 @@ interface DeviceInfo {
   connected: boolean;
 }
 
+export interface SerialLogEntry {
+  message: string;
+  level: 'info' | 'warn' | 'error' | 'debug';
+  timestamp: number;
+}
+
 export const useWebBluetooth = () => {
   const [isSupported, setIsSupported] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -113,6 +119,7 @@ export const useWebBluetooth = () => {
   const [status, setStatus] = useState<ESP32Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [serialLogs, setSerialLogs] = useState<SerialLogEntry[]>([]);
 
   const deviceRef = useRef<BluetoothDevice | null>(null);
   const serverRef = useRef<BluetoothRemoteGATTServer | null>(null);
@@ -211,6 +218,16 @@ export const useWebBluetooth = () => {
             const data = JSON.parse(jsonString);
             if (data.type === 'status_update') {
               setStatus(data);
+            } else if (data.type === 'serial_log') {
+              // Add log entry to serial logs (keep last 500 entries)
+              setSerialLogs(prev => {
+                const newLogs = [...prev, {
+                  message: data.message || '',
+                  level: data.level || 'info',
+                  timestamp: data.timestamp || Date.now()
+                }];
+                return newLogs.slice(-500); // Keep last 500 entries
+              });
             }
           } catch (err) {
             console.error('Failed to parse ESP32 message:', err);
@@ -324,6 +341,7 @@ export const useWebBluetooth = () => {
     status,
     error,
     isScanning,
+    serialLogs,
     
     // Actions
     scanForDevices,

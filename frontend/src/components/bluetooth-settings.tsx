@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Bluetooth, WifiOff, RefreshCw, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Bluetooth, WifiOff, RefreshCw, CheckCircle, XCircle, AlertCircle, Terminal } from 'lucide-react';
 import { useWebBluetooth } from '@/hooks/use-web-bluetooth';
 
 interface BluetoothDevice {
@@ -17,6 +17,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
   onConnectionChange 
 }) => {
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
+  const logEndRef = useRef<HTMLDivElement>(null);
   
   // Use Web Bluetooth hook
   const {
@@ -26,11 +27,19 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
     status,
     error,
     isScanning,
+    serialLogs,
     scanForDevices,
     connectToDevice,
     disconnect,
     getStatus
   } = useWebBluetooth();
+  
+  // Auto-scroll to bottom when new logs arrive
+  useEffect(() => {
+    if (logEndRef.current) {
+      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [serialLogs]);
 
   // Update parent component when connection changes
   useEffect(() => {
@@ -317,6 +326,54 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
           </p>
         </div>
       </div>
+
+      {/* Serial Monitor */}
+      {isConnected && (
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <Terminal className="w-5 h-5 text-gray-600" />
+              <h3 className="text-lg font-medium text-gray-800">Serial Monitor</h3>
+              <span className="text-xs text-gray-500">({serialLogs.length} meldinger)</span>
+            </div>
+          </div>
+          
+          <div className="bg-gray-900 rounded-lg p-4 font-mono text-sm text-green-400 max-h-96 overflow-y-auto">
+            {serialLogs.length === 0 ? (
+              <div className="text-gray-500 italic">Venter på meldinger fra ESP32...</div>
+            ) : (
+              <div className="space-y-1">
+                {serialLogs.map((log, index) => {
+                  // ESP32 timestamp is in milliseconds since boot, convert to time string
+                  const timeStr = log.timestamp < 86400000 
+                    ? `${Math.floor(log.timestamp / 1000)}s`
+                    : new Date(log.timestamp).toLocaleTimeString('no-NO');
+                  
+                  const levelColor = {
+                    info: 'text-blue-400',
+                    warn: 'text-yellow-400',
+                    error: 'text-red-400',
+                    debug: 'text-gray-400'
+                  }[log.level] || 'text-green-400';
+                  
+                  return (
+                    <div key={index} className="flex items-start space-x-2">
+                      <span className="text-gray-500 text-xs">{timeStr}</span>
+                      <span className={`${levelColor} capitalize text-xs`}>[{log.level}]</span>
+                      <span className="text-green-400 flex-1">{log.message}</span>
+                    </div>
+                  );
+                })}
+                <div ref={logEndRef} />
+              </div>
+            )}
+          </div>
+          
+          <p className="text-xs text-gray-500 mt-2">
+            Viser Serial output fra ESP32 via Bluetooth. Log-meldinger sendes automatisk.
+          </p>
+        </div>
+      )}
     </div>
   );
 };
