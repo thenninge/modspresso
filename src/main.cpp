@@ -412,12 +412,41 @@ void executeProfile() {
   }
   
   unsigned long currentTime = (millis() - startTime) / 1000; // Convert to seconds
+  
+  // Safety check: ensure currentSegment is valid
+  if (!profileSegments || currentSegment >= profileSegments.size()) {
+    Serial.println("ERROR: Invalid segment index");
+    stopProfile();
+    return;
+  }
+  
   JsonObject segment = profileSegments[currentSegment];
   
-  int segmentStartTime = segment["startTime"];
-  int segmentEndTime = segment["endTime"];
-  float startPressure = segment["startPressure"];
-  float endPressure = segment["endPressure"];
+  // Read segment data with proper fallback values - support both full and shortened field names
+  int segmentStartTime = segment.containsKey("startTime") ? segment["startTime"] : (segment.containsKey("st") ? segment["st"] : 0);
+  int segmentEndTime = segment.containsKey("endTime") ? segment["endTime"] : (segment.containsKey("et") ? segment["et"] : 0);
+  
+  float startPressure = 0.0f;
+  if (segment.containsKey("startPressure")) {
+    startPressure = segment["startPressure"].as<float>();
+  } else if (segment.containsKey("sp")) {
+    startPressure = segment["sp"].as<float>();
+  }
+  
+  float endPressure = 0.0f;
+  if (segment.containsKey("endPressure")) {
+    endPressure = segment["endPressure"].as<float>();
+  } else if (segment.containsKey("ep")) {
+    endPressure = segment["ep"].as<float>();
+  }
+  
+  // Safety check: ensure valid time range
+  if (segmentEndTime <= segmentStartTime) {
+    // Invalid segment, move to next
+    Serial.println("WARNING: Invalid segment time range, skipping");
+    currentSegment++;
+    return;
+  }
   
   // Log when entering a new segment
   static int lastLoggedSegment = -1;
@@ -432,8 +461,26 @@ void executeProfile() {
   
   if (currentTime >= segmentStartTime && currentTime <= segmentEndTime) {
     // Calculate target pressure for current time
-    float progress = (float)(currentTime - segmentStartTime) / (segmentEndTime - segmentStartTime);
+    int segmentDuration = segmentEndTime - segmentStartTime;
+    if (segmentDuration <= 0) {
+      // Safety check: avoid division by zero
+      Serial.println("ERROR: Segment duration is zero or negative");
+      stopProfile();
+      return;
+    }
+    
+    float progress = (float)(currentTime - segmentStartTime) / (float)segmentDuration;
+    // Clamp progress between 0 and 1
+    if (progress < 0.0f) progress = 0.0f;
+    if (progress > 1.0f) progress = 1.0f;
+    
     float targetPressure = startPressure + (endPressure - startPressure) * progress;
+    
+    // Safety check: ensure targetPressure is valid
+    if (isnan(targetPressure) || isinf(targetPressure)) {
+      Serial.println("ERROR: Invalid target pressure calculated");
+      targetPressure = 0.0f;
+    }
     
     // Convert pressure to dim level and set
     int dimLevel = pressureToDimLevel(targetPressure);
