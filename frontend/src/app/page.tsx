@@ -9,6 +9,7 @@ import PressureChart from '@/components/pressure-chart';
 import CalibrationPanel from '@/components/calibration-panel';
 import ProfileSimulatorChartJS from '@/components/profile-simulator-chartjs';
 import BluetoothSettings from '@/components/bluetooth-settings';
+import { LiveBrewChart } from '@/components/live-brew-chart';
 import { Profile } from '@/types';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { predefinedProfiles } from '@/data/default-profiles';
@@ -25,6 +26,7 @@ export default function Home() {
   // Use Web Bluetooth hook at top level to maintain connection across tab switches
   const bluetoothHook = useWebBluetooth();
   const bluetoothConnected = bluetoothHook.isConnected;
+  const { status: esp32Status, liveBrewData } = bluetoothHook;
 
   React.useEffect(() => {
     setIsMounted(true);
@@ -450,24 +452,47 @@ export default function Home() {
     });
   }, [profiles, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile]);
 
-  const renderBrewTab = () => (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <div className="flex space-x-4 mt-2 text-sm text-gray-600">
-            <div className="flex items-center">
-              <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
-              Default 1: {defaultProfile1Name}
-            </div>
-            <div className="flex items-center">
-              <span className="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
-              Default 2: {defaultProfile2Name}
+  const renderBrewTab = () => {
+    // Find currently running profile
+    const runningProfile = esp32Status?.is_running 
+      ? profiles.find(p => {
+          // Try to match by name or check if it's one of the default profiles
+          const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
+          const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
+          return isDefault1 || isDefault2;
+        })
+      : null;
+
+    return (
+      <div className="space-y-6">
+        {/* Live Brew Chart - show when profile is running */}
+        {esp32Status?.is_running && runningProfile && liveBrewData.length > 0 && (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <LiveBrewChart 
+              profile={runningProfile}
+              liveData={liveBrewData}
+              isRunning={true}
+              height={400}
+            />
+          </div>
+        )}
+
+        <div className="flex justify-between items-center">
+          <div>
+            <div className="flex space-x-4 mt-2 text-sm text-gray-600">
+              <div className="flex items-center">
+                <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
+                Default 1: {defaultProfile1Name}
+              </div>
+              <div className="flex items-center">
+                <span className="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
+                Default 2: {defaultProfile2Name}
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {!isMounted ? (
           // Server-side: Always show loading state
           <div className="col-span-full text-center py-12">
@@ -489,9 +514,10 @@ export default function Home() {
         ) : (
           brewProfileCards
         )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderProfilesTab = () => (
     <div className="space-y-6">

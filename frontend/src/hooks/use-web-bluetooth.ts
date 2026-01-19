@@ -105,6 +105,13 @@ interface ESP32Status {
   default_profile2_name?: string;
 }
 
+export interface LiveBrewData {
+  time: number;
+  current_pressure: number;
+  target_pressure: number;
+  timestamp: number;
+}
+
 interface DeviceInfo {
   id: string;
   name: string;
@@ -125,6 +132,7 @@ export const useWebBluetooth = () => {
   const [error, setError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [serialLogs, setSerialLogs] = useState<SerialLogEntry[]>([]);
+  const [liveBrewData, setLiveBrewData] = useState<LiveBrewData[]>([]);
 
   const deviceRef = useRef<BluetoothDevice | null>(null);
   const serverRef = useRef<BluetoothRemoteGATTServer | null>(null);
@@ -260,6 +268,19 @@ export const useWebBluetooth = () => {
                 }];
                 console.log('Updated serialLogs, new count:', newLogs.length); // Debug logging
                 return newLogs.slice(-500); // Keep last 500 entries
+              });
+            } else if (data.type === 'pressure_update') {
+              // Handle live brew data updates
+              const brewData: LiveBrewData = {
+                time: data.current_time ?? 0,
+                current_pressure: data.current_pressure ?? 0,
+                target_pressure: data.target_pressure ?? 0,
+                timestamp: Date.now()
+              };
+              setLiveBrewData(prev => {
+                const newData = [...prev, brewData];
+                // Keep last 1000 data points (about 16 minutes at 1 update/second)
+                return newData.slice(-1000);
               });
             } else {
               console.log('Unknown message type:', data.type); // Debug logging
@@ -500,6 +521,17 @@ export const useWebBluetooth = () => {
     });
   }, [sendCommand]);
 
+  // Clear live brew data when profile stops
+  useEffect(() => {
+    if (status && !status.is_running && liveBrewData.length > 0) {
+      // Profile stopped - keep data for a bit, then clear after 5 seconds
+      const timer = setTimeout(() => {
+        setLiveBrewData([]);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [status, liveBrewData.length]);
+
   return {
     // State
     isSupported,
@@ -509,6 +541,7 @@ export const useWebBluetooth = () => {
     error,
     isScanning,
     serialLogs,
+    liveBrewData,
     
     // Actions
     scanForDevices,
