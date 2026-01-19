@@ -86,6 +86,10 @@ bool wifiConnected = false;
 #define PHASE_NUM 0  // Phase number (0 for single phase)
 rbdimmer_channel_t* dimmer_channel = NULL;  // Dimmer channel object
 
+// TESTING MODE: Set to false to disable zero-cross requirement (for testing dimmer LED)
+// IMPORTANT: Set back to true when using with real pump in loop!
+#define REQUIRE_ZERO_CROSS true  // Set to false to test dimmer without zero-cross input
+
 // Function declarations
 void handleCommand(const char* command);
 void setupWiFi();
@@ -158,12 +162,19 @@ void setup() {
     Serial.println("RBDimmer library initialized");
   }
   
-  // Register zero-cross detector
-  if (rbdimmer_register_zero_cross(ZERO_CROSS_PIN, PHASE_NUM, 0) != RBDIMMER_OK) {
-    Serial.println("ERROR: Failed to register zero-cross detector on GPIO" + String(ZERO_CROSS_PIN));
-    sendLogMessage("ERROR: Failed to register zero-cross detector", "error");
+  // Register zero-cross detector (if required)
+  if (REQUIRE_ZERO_CROSS) {
+    if (rbdimmer_register_zero_cross(ZERO_CROSS_PIN, PHASE_NUM, 0) != RBDIMMER_OK) {
+      Serial.println("ERROR: Failed to register zero-cross detector on GPIO" + String(ZERO_CROSS_PIN));
+      sendLogMessage("ERROR: Failed to register zero-cross detector", "error");
+    } else {
+      Serial.println("Zero-cross detector registered on GPIO" + String(ZERO_CROSS_PIN));
+    }
   } else {
-    Serial.println("Zero-cross detector registered on GPIO" + String(ZERO_CROSS_PIN));
+    Serial.println("WARNING: Zero-cross detection DISABLED (TESTING MODE)");
+    Serial.println("  This is for testing dimmer LED only!");
+    Serial.println("  Set REQUIRE_ZERO_CROSS to true for real pump operation!");
+    sendLogMessage("WARNING: Zero-cross disabled - TESTING MODE", "warn");
   }
   
   // Create dimmer channel configuration
@@ -179,12 +190,22 @@ void setup() {
     sendLogMessage("ERROR: Failed to create dimmer channel", "error");
   } else {
     Serial.println("Dimmer channel created on GPIO" + String(DIMMER_PIN));
-    Serial.println("Zero-cross dimmer initialized successfully:");
-    Serial.println("  Zero-cross pin: GPIO" + String(ZERO_CROSS_PIN));
-    Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
-    Serial.println("  Phase: " + String(PHASE_NUM));
-    Serial.println("  Curve type: RMS");
-    sendLogMessage("Zero-cross dimmer initialized successfully", "info");
+    if (REQUIRE_ZERO_CROSS) {
+      Serial.println("Zero-cross dimmer initialized successfully:");
+      Serial.println("  Zero-cross pin: GPIO" + String(ZERO_CROSS_PIN));
+      Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
+      Serial.println("  Phase: " + String(PHASE_NUM));
+      Serial.println("  Curve type: RMS");
+      sendLogMessage("Zero-cross dimmer initialized successfully", "info");
+    } else {
+      Serial.println("Dimmer initialized in TESTING MODE (zero-cross disabled):");
+      Serial.println("  Zero-cross pin: DISABLED");
+      Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
+      Serial.println("  Phase: " + String(PHASE_NUM));
+      Serial.println("  Curve type: RMS");
+      Serial.println("  WARNING: This mode is for testing dimmer LED only!");
+      sendLogMessage("Dimmer initialized in TESTING MODE (zero-cross disabled)", "warn");
+    }
   }
 
   // Initialize Bluetooth
@@ -652,11 +673,18 @@ void setDimLevel(int level) {
   if (dimmer_channel != NULL) {
     rbdimmer_err_t result = rbdimmer_set_level(dimmer_channel, level);
     if (result == RBDIMMER_OK) {
-      String logMsg = "Dim level set to: " + String(level) + "% (RBDimmer controlled)";
+      String logMsg = "Dim level set to: " + String(level) + "% (RBDimmer controlled";
+      if (!REQUIRE_ZERO_CROSS) {
+        logMsg += ", TESTING MODE - zero-cross disabled";
+      }
+      logMsg += ")";
       Serial.println(logMsg);
       sendLogMessage(logMsg.c_str(), "info");
     } else {
       String errorMsg = "ERROR: Failed to set dim level to " + String(level) + "%";
+      if (!REQUIRE_ZERO_CROSS) {
+        errorMsg += " (TESTING MODE - zero-cross disabled)";
+      }
       Serial.println(errorMsg);
       sendLogMessage(errorMsg.c_str(), "error");
     }
