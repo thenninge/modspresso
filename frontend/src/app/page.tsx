@@ -12,6 +12,7 @@ import BluetoothSettings from '@/components/bluetooth-settings';
 import { Profile } from '@/types';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { predefinedProfiles } from '@/data/default-profiles';
+import { useWebBluetooth } from '@/hooks/use-web-bluetooth';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'brew' | 'profiles' | 'calibration' | 'settings'>('brew');
@@ -20,7 +21,10 @@ export default function Home() {
   const [editingProfile, setEditingProfile] = useState<Profile | undefined>();
   const [simulatingProfile, setSimulatingProfile] = useState<Profile | null>(null);
   const [isMounted, setIsMounted] = useState(false);
-  const [bluetoothConnected, setBluetoothConnected] = useState(false);
+  
+  // Use Web Bluetooth hook at top level to maintain connection across tab switches
+  const bluetoothHook = useWebBluetooth();
+  const bluetoothConnected = bluetoothHook.isConnected;
 
   React.useEffect(() => {
     setIsMounted(true);
@@ -434,7 +438,7 @@ export default function Home() {
   );
 
   const renderSettingsTab = () => (
-    <BluetoothSettings onConnectionChange={setBluetoothConnected} />
+    <BluetoothSettings onConnectionChange={(connected) => {/* Connection state is managed by hook */}} useBluetoothHook={bluetoothHook} />
   );
 
   return (

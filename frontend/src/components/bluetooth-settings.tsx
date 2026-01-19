@@ -11,13 +11,18 @@ interface BluetoothDevice {
 
 interface BluetoothSettingsProps {
   onConnectionChange?: (connected: boolean) => void;
+  useBluetoothHook?: ReturnType<typeof useWebBluetooth>;
 }
 
 export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({ 
-  onConnectionChange 
+  onConnectionChange,
+  useBluetoothHook
 }) => {
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
+  
+  // Use provided hook or create new instance
+  const hookInstance = useBluetoothHook || useWebBluetooth();
   
   // Use Web Bluetooth hook
   const {
@@ -33,7 +38,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
     disconnect,
     getStatus,
     sendSerialCommand
-  } = useWebBluetooth();
+  } = hookInstance;
 
   const [serialInput, setSerialInput] = useState('');
   
