@@ -301,7 +301,8 @@ void handleCommand(const char* command) {
     return;
   }
 
-  String cmd = doc["command"];
+  // Support both "command" and "cmd" (optimized format)
+  String cmd = doc["command"] | doc["cmd"] | "";
   
   if (cmd == "start_profile") {
     startProfile(doc["profile"]);
@@ -326,9 +327,22 @@ void handleCommand(const char* command) {
     setCalibrationData(doc["calibration"]);
   } else if (cmd == "get_calibration_status") {
     sendCalibrationStatus();
-  } else if (cmd == "store_profile") {
-    uint8_t id = doc["id"];
-    storeProfile(id, doc["profile"]);
+  } else if (cmd == "store_profile" || cmd == "") {
+    // Handle both full and optimized (shortened) command format
+    uint8_t id;
+    JsonObject profile;
+    
+    // Check for optimized format (cmd = "", id directly in root)
+    if (cmd == "" && doc.containsKey("id") && doc.containsKey("p")) {
+      id = doc["id"];
+      profile = doc["p"];
+    } else {
+      // Standard format
+      id = doc["id"];
+      profile = doc["profile"];
+    }
+    
+    storeProfile(id, profile);
   } else if (cmd == "set_default_profile") {
     int button = doc["button"];
     uint8_t profileId = doc["profileId"];
@@ -735,26 +749,38 @@ bool storeProfile(uint8_t id, JsonObject profileData) {
   CompactProfile& profile = storedProfiles[id];
   profile.id = id;
   
-  // Copy name (truncate if too long)
-  String name = profileData["name"];
+  // Copy name (truncate if too long) - support both "name" and "n" (optimized)
+  String name = profileData["name"] | profileData["n"] | "";
   strncpy(profile.name, name.c_str(), 15);
   profile.name[15] = '\0';
   
-  // Process segments
-  JsonArray segments = profileData["segments"];
+  // Process segments - support both "segments" and "s" (optimized)
+  JsonArray segments;
+  if (profileData.containsKey("segments")) {
+    segments = profileData["segments"];
+  } else if (profileData.containsKey("s")) {
+    segments = profileData["s"];
+  } else {
+    return false; // No segments found
+  }
+  
   profile.segmentCount = min(segments.size(), (size_t)10);
   profile.totalDuration = 0;
   
   for (int i = 0; i < profile.segmentCount; i++) {
     JsonObject segment = segments[i];
     
-    // Convert to compact format
-    profile.segments[i].startTime = segment["startTime"];
-    profile.segments[i].endTime = segment["endTime"];
-    profile.segments[i].startPressure = (uint8_t)(segment["startPressure"].as<float>() * 10); // Convert to 0-120
-    profile.segments[i].endPressure = (uint8_t)(segment["endPressure"].as<float>() * 10);
+    // Convert to compact format - support both full and shortened field names
+    profile.segments[i].startTime = segment.containsKey("startTime") ? segment["startTime"] : segment["st"] | 0;
+    profile.segments[i].endTime = segment.containsKey("endTime") ? segment["endTime"] : segment["et"] | 0;
     
-    profile.totalDuration = max(profile.totalDuration, (uint8_t)segment["endTime"]);
+    float startPress = segment.containsKey("startPressure") ? segment["startPressure"].as<float>() : (segment.containsKey("sp") ? segment["sp"].as<float>() : 0.0f);
+    float endPress = segment.containsKey("endPressure") ? segment["endPressure"].as<float>() : (segment.containsKey("ep") ? segment["ep"].as<float>() : 0.0f);
+    
+    profile.segments[i].startPressure = (uint8_t)(startPress * 10); // Convert to 0-120
+    profile.segments[i].endPressure = (uint8_t)(endPress * 10);
+    
+    profile.totalDuration = max(profile.totalDuration, (uint8_t)profile.segments[i].endTime);
   }
   
   // Calculate checksum

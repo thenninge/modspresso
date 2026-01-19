@@ -335,31 +335,61 @@ export const useWebBluetooth = () => {
           const profile = command.profile as Record<string, unknown>;
           // Limit segments to essential data only
           if (Array.isArray(profile.segments)) {
-            const optimizedSegments = (profile.segments as Array<Record<string, unknown>>).slice(0, 10).map(seg => ({
-              startTime: seg.startTime,
-              endTime: seg.endTime,
-              startPressure: seg.startPressure,
-              endPressure: seg.endPressure
-            }));
+            const segments = profile.segments as Array<Record<string, unknown>>;
+            const profileName = (profile.name as string) || '';
             
-            const optimizedCommand = {
-              command: command.command,
-              id: command.id,
-              profile: {
-                id: profile.id,
-                name: (profile.name as string)?.substring(0, 15) || profile.name, // Limit name length
-                segments: optimizedSegments
-              }
+            // Start with aggressive optimization and reduce until it fits
+            let maxSegments = Math.min(segments.length, 10);
+            let nameLength = 12;
+            let optimizedData: Uint8Array | null = null;
+            let optimizedJson: string = '';
+            let attempts = 0;
+            const maxAttempts = 5;
+            
+            do {
+              const optimizedSegments = segments.slice(0, maxSegments).map(seg => ({
+                st: seg.startTime,  // Shortened keys to reduce size
+                et: seg.endTime,
+                sp: seg.startPressure,
+                ep: seg.endPressure
+              }));
+              
+              const optimizedCommand = {
+                cmd: 'store_profile',  // Shortened command
+                id: command.id,
+                p: {  // Shortened profile
+                  id: profile.id,
+                  n: profileName.substring(0, nameLength), // Shortened name field
+                  s: optimizedSegments  // Shortened segments field
+                }
             };
+              
+              optimizedJson = JSON.stringify(optimizedCommand);
+              optimizedData = encoder.encode(optimizedJson);
+              
+              // If still too large, reduce further
+              if (optimizedData.length > MAX_CHUNK_SIZE && attempts < maxAttempts) {
+                if (maxSegments > 5) {
+                  maxSegments -= 2;  // Reduce segments
+                } else if (nameLength > 8) {
+                  nameLength -= 2;  // Reduce name length
+                } else if (maxSegments > 1) {
+                  maxSegments -= 1;  // Last resort: reduce to minimum
+                } else {
+                  break;  // Can't reduce further
+                }
+                attempts++;
+              } else {
+                break;
+              }
+            } while (optimizedData.length > MAX_CHUNK_SIZE && attempts < maxAttempts);
             
-            const optimizedJson = JSON.stringify(optimizedCommand);
-            const optimizedData = encoder.encode(optimizedJson);
-            
-            if (optimizedData.length <= MAX_CHUNK_SIZE) {
-              await characteristicRef.current.writeValue(optimizedData);
+            if (optimizedData && optimizedData.length <= MAX_CHUNK_SIZE) {
+              console.log(`Profile optimized: ${data.length} → ${optimizedData.length} bytes (${maxSegments} segments, ${nameLength} char name)`);
+              await characteristicRef.current.writeValue(new Uint8Array(optimizedData));
               return true;
-            } else {
-              setError(`Profil for stor (${optimizedData.length} bytes). Begrense antall segments eller navnelengde.`);
+            } else if (optimizedData) {
+              setError(`Profil for stor (${optimizedData.length} bytes). Redusert til ${maxSegments} segments, men fortsatt for stor. Prøv med færre segments.`);
               return false;
             }
           }
