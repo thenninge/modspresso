@@ -90,6 +90,11 @@ rbdimmer_channel_t* dimmer_channel = NULL;  // Dimmer channel object
 // IMPORTANT: Set back to true when using with real pump in loop!
 #define REQUIRE_ZERO_CROSS true  // Set to false to test dimmer without zero-cross input
 
+// SIMPLE PWM TEST MODE: Set to true to use simple PWM instead of RBDimmer library
+// This is ONLY for testing if dimmer LED lights up - NOT for real pump operation!
+// IMPORTANT: Set back to false when using with real pump in loop!
+#define USE_SIMPLE_PWM_TEST false  // Set to true for simple PWM test (bypasses RBDimmer completely)
+
 // Function declarations
 void handleCommand(const char* command);
 void setupWiFi();
@@ -152,59 +157,84 @@ void setup() {
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);  // GPIO19 - Button 2 (LOW = pressed, HIGH = not pressed)
   digitalWrite(LED_PIN, LOW);
 
-  // Initialize RBDimmer library for RobotDyn Mod-Dimmer-5A-1L
-  Serial.println("Initializing RBDimmer library...");
-  
-  if (rbdimmer_init() != RBDIMMER_OK) {
-    Serial.println("ERROR: Failed to initialize RBDimmer library");
-    sendLogMessage("ERROR: Failed to initialize RBDimmer library", "error");
+  // Initialize dimmer - either simple PWM test mode or RBDimmer library
+  if (USE_SIMPLE_PWM_TEST) {
+    // SIMPLE PWM TEST MODE: Direct PWM output for testing dimmer LED
+    // WARNING: This is ONLY for testing - NOT for real pump operation!
+    Serial.println("========================================");
+    Serial.println("SIMPLE PWM TEST MODE ENABLED!");
+    Serial.println("  This mode uses direct PWM on GPIO" + String(DIMMER_PIN));
+    Serial.println("  RBDimmer library is DISABLED");
+    Serial.println("  This is ONLY for testing dimmer LED!");
+    Serial.println("  Set USE_SIMPLE_PWM_TEST to false for real pump operation!");
+    Serial.println("========================================");
+    sendLogMessage("SIMPLE PWM TEST MODE ENABLED - RBDimmer disabled", "warn");
+    
+    // Setup PWM channel for dimmer pin
+    ledcSetup(0, 5000, 8);  // Channel 0, 5kHz frequency, 8-bit resolution (0-255)
+    ledcAttachPin(DIMMER_PIN, 0);  // Attach GPIO25 to channel 0
+    ledcWrite(0, 0);  // Start with 0 (off)
+    
+    Serial.println("Simple PWM initialized on GPIO" + String(DIMMER_PIN));
+    Serial.println("  PWM channel: 0");
+    Serial.println("  Frequency: 5kHz");
+    Serial.println("  Resolution: 8-bit (0-255)");
+    sendLogMessage("Simple PWM initialized for testing", "info");
   } else {
-    Serial.println("RBDimmer library initialized");
-  }
-  
-  // Register zero-cross detector (if required)
-  if (REQUIRE_ZERO_CROSS) {
-    if (rbdimmer_register_zero_cross(ZERO_CROSS_PIN, PHASE_NUM, 0) != RBDIMMER_OK) {
-      Serial.println("ERROR: Failed to register zero-cross detector on GPIO" + String(ZERO_CROSS_PIN));
-      sendLogMessage("ERROR: Failed to register zero-cross detector", "error");
+    // NORMAL MODE: Use RBDimmer library for proper zero-cross detection
+    Serial.println("Initializing RBDimmer library...");
+    
+    if (rbdimmer_init() != RBDIMMER_OK) {
+      Serial.println("ERROR: Failed to initialize RBDimmer library");
+      sendLogMessage("ERROR: Failed to initialize RBDimmer library", "error");
     } else {
-      Serial.println("Zero-cross detector registered on GPIO" + String(ZERO_CROSS_PIN));
+      Serial.println("RBDimmer library initialized");
     }
-  } else {
-    Serial.println("WARNING: Zero-cross detection DISABLED (TESTING MODE)");
-    Serial.println("  This is for testing dimmer LED only!");
-    Serial.println("  Set REQUIRE_ZERO_CROSS to true for real pump operation!");
-    sendLogMessage("WARNING: Zero-cross disabled - TESTING MODE", "warn");
-  }
-  
-  // Create dimmer channel configuration
-  rbdimmer_config_t dimmer_config = {
-    .gpio_pin = DIMMER_PIN,
-    .phase = PHASE_NUM,
-    .initial_level = 0,  // Start with 0% (off)
-    .curve_type = RBDIMMER_CURVE_RMS  // RMS curve for smooth dimming (good for resistive loads)
-  };
-  
-  if (rbdimmer_create_channel(&dimmer_config, &dimmer_channel) != RBDIMMER_OK) {
-    Serial.println("ERROR: Failed to create dimmer channel on GPIO" + String(DIMMER_PIN));
-    sendLogMessage("ERROR: Failed to create dimmer channel", "error");
-  } else {
-    Serial.println("Dimmer channel created on GPIO" + String(DIMMER_PIN));
+    
+    // Register zero-cross detector (if required)
     if (REQUIRE_ZERO_CROSS) {
-      Serial.println("Zero-cross dimmer initialized successfully:");
-      Serial.println("  Zero-cross pin: GPIO" + String(ZERO_CROSS_PIN));
-      Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
-      Serial.println("  Phase: " + String(PHASE_NUM));
-      Serial.println("  Curve type: RMS");
-      sendLogMessage("Zero-cross dimmer initialized successfully", "info");
+      if (rbdimmer_register_zero_cross(ZERO_CROSS_PIN, PHASE_NUM, 0) != RBDIMMER_OK) {
+        Serial.println("ERROR: Failed to register zero-cross detector on GPIO" + String(ZERO_CROSS_PIN));
+        sendLogMessage("ERROR: Failed to register zero-cross detector", "error");
+      } else {
+        Serial.println("Zero-cross detector registered on GPIO" + String(ZERO_CROSS_PIN));
+      }
     } else {
-      Serial.println("Dimmer initialized in TESTING MODE (zero-cross disabled):");
-      Serial.println("  Zero-cross pin: DISABLED");
-      Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
-      Serial.println("  Phase: " + String(PHASE_NUM));
-      Serial.println("  Curve type: RMS");
-      Serial.println("  WARNING: This mode is for testing dimmer LED only!");
-      sendLogMessage("Dimmer initialized in TESTING MODE (zero-cross disabled)", "warn");
+      Serial.println("WARNING: Zero-cross detection DISABLED (TESTING MODE)");
+      Serial.println("  This is for testing dimmer LED only!");
+      Serial.println("  Set REQUIRE_ZERO_CROSS to true for real pump operation!");
+      sendLogMessage("WARNING: Zero-cross disabled - TESTING MODE", "warn");
+    }
+    
+    // Create dimmer channel configuration
+    rbdimmer_config_t dimmer_config = {
+      .gpio_pin = DIMMER_PIN,
+      .phase = PHASE_NUM,
+      .initial_level = 0,  // Start with 0% (off)
+      .curve_type = RBDIMMER_CURVE_RMS  // RMS curve for smooth dimming (good for resistive loads)
+    };
+    
+    if (rbdimmer_create_channel(&dimmer_config, &dimmer_channel) != RBDIMMER_OK) {
+      Serial.println("ERROR: Failed to create dimmer channel on GPIO" + String(DIMMER_PIN));
+      sendLogMessage("ERROR: Failed to create dimmer channel", "error");
+    } else {
+      Serial.println("Dimmer channel created on GPIO" + String(DIMMER_PIN));
+      if (REQUIRE_ZERO_CROSS) {
+        Serial.println("Zero-cross dimmer initialized successfully:");
+        Serial.println("  Zero-cross pin: GPIO" + String(ZERO_CROSS_PIN));
+        Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
+        Serial.println("  Phase: " + String(PHASE_NUM));
+        Serial.println("  Curve type: RMS");
+        sendLogMessage("Zero-cross dimmer initialized successfully", "info");
+      } else {
+        Serial.println("Dimmer initialized in TESTING MODE (zero-cross disabled):");
+        Serial.println("  Zero-cross pin: DISABLED");
+        Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
+        Serial.println("  Phase: " + String(PHASE_NUM));
+        Serial.println("  Curve type: RMS");
+        Serial.println("  WARNING: This mode is for testing dimmer LED only!");
+        sendLogMessage("Dimmer initialized in TESTING MODE (zero-cross disabled)", "warn");
+      }
     }
   }
 
@@ -669,29 +699,40 @@ void setDimLevel(int level) {
   // Clamp level between 0 and 100
   level = constrain(level, 0, 100);
   
-  // Set dim level using RBDimmer library (handles zero-cross and phase-angle control automatically)
-  if (dimmer_channel != NULL) {
-    rbdimmer_err_t result = rbdimmer_set_level(dimmer_channel, level);
-    if (result == RBDIMMER_OK) {
-      String logMsg = "Dim level set to: " + String(level) + "% (RBDimmer controlled";
-      if (!REQUIRE_ZERO_CROSS) {
-        logMsg += ", TESTING MODE - zero-cross disabled";
+  if (USE_SIMPLE_PWM_TEST) {
+    // SIMPLE PWM TEST MODE: Direct PWM output for testing dimmer LED
+    // Map 0-100% to 0-255 PWM value
+    int pwmValue = map(level, 0, 100, 0, 255);
+    ledcWrite(0, pwmValue);  // Write PWM to channel 0 (GPIO25)
+    
+    String logMsg = "Dim level set to: " + String(level) + "% (Simple PWM test mode, PWM value: " + String(pwmValue) + "/255)";
+    Serial.println(logMsg);
+    sendLogMessage(logMsg.c_str(), "info");
+  } else {
+    // NORMAL MODE: Use RBDimmer library (handles zero-cross and phase-angle control automatically)
+    if (dimmer_channel != NULL) {
+      rbdimmer_err_t result = rbdimmer_set_level(dimmer_channel, level);
+      if (result == RBDIMMER_OK) {
+        String logMsg = "Dim level set to: " + String(level) + "% (RBDimmer controlled";
+        if (!REQUIRE_ZERO_CROSS) {
+          logMsg += ", TESTING MODE - zero-cross disabled";
+        }
+        logMsg += ")";
+        Serial.println(logMsg);
+        sendLogMessage(logMsg.c_str(), "info");
+      } else {
+        String errorMsg = "ERROR: Failed to set dim level to " + String(level) + "%";
+        if (!REQUIRE_ZERO_CROSS) {
+          errorMsg += " (TESTING MODE - zero-cross disabled)";
+        }
+        Serial.println(errorMsg);
+        sendLogMessage(errorMsg.c_str(), "error");
       }
-      logMsg += ")";
-      Serial.println(logMsg);
-      sendLogMessage(logMsg.c_str(), "info");
     } else {
-      String errorMsg = "ERROR: Failed to set dim level to " + String(level) + "%";
-      if (!REQUIRE_ZERO_CROSS) {
-        errorMsg += " (TESTING MODE - zero-cross disabled)";
-      }
+      String errorMsg = "ERROR: Dimmer channel not initialized!";
       Serial.println(errorMsg);
       sendLogMessage(errorMsg.c_str(), "error");
     }
-  } else {
-    String errorMsg = "ERROR: Dimmer channel not initialized!";
-    Serial.println(errorMsg);
-    sendLogMessage(errorMsg.c_str(), "error");
   }
 }
 
