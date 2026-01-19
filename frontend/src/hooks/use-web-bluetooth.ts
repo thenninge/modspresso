@@ -315,9 +315,59 @@ export const useWebBluetooth = () => {
 
     try {
       const encoder = new TextEncoder();
-      const data = encoder.encode(JSON.stringify(command));
-      await characteristicRef.current.writeValue(data);
-      return true;
+      const jsonString = JSON.stringify(command);
+      const data = encoder.encode(jsonString);
+      
+      // BLE has a maximum write size of 512 bytes
+      const MAX_CHUNK_SIZE = 512;
+      
+      if (data.length <= MAX_CHUNK_SIZE) {
+        // Small command, send directly
+        await characteristicRef.current.writeValue(data);
+        return true;
+      } else {
+        // Large command, need to split or optimize
+        // For now, truncate or optimize the profile data
+        console.warn(`Command too large (${data.length} bytes), attempting to optimize...`);
+        
+        // If it's a store_profile command, try to optimize the profile data
+        if (command.command === 'store_profile' && command.profile) {
+          const profile = command.profile as Record<string, unknown>;
+          // Limit segments to essential data only
+          if (Array.isArray(profile.segments)) {
+            const optimizedSegments = (profile.segments as Array<Record<string, unknown>>).slice(0, 10).map(seg => ({
+              startTime: seg.startTime,
+              endTime: seg.endTime,
+              startPressure: seg.startPressure,
+              endPressure: seg.endPressure
+            }));
+            
+            const optimizedCommand = {
+              command: command.command,
+              id: command.id,
+              profile: {
+                id: profile.id,
+                name: (profile.name as string)?.substring(0, 15) || profile.name, // Limit name length
+                segments: optimizedSegments
+              }
+            };
+            
+            const optimizedJson = JSON.stringify(optimizedCommand);
+            const optimizedData = encoder.encode(optimizedJson);
+            
+            if (optimizedData.length <= MAX_CHUNK_SIZE) {
+              await characteristicRef.current.writeValue(optimizedData);
+              return true;
+            } else {
+              setError(`Profil for stor (${optimizedData.length} bytes). Begrense antall segments eller navnelengde.`);
+              return false;
+            }
+          }
+        }
+        
+        setError(`Kommando for stor (${data.length} bytes). Maksimum størrelse er ${MAX_CHUNK_SIZE} bytes.`);
+        return false;
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Ukjent feil';
       setError(`Kunne ikke sende kommando: ${errorMessage}`);
