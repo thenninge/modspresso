@@ -16,7 +16,7 @@ import type { LiveBrewData } from '@/hooks/use-web-bluetooth';
 
 interface LiveBrewChartProps {
   profile: Profile;
-  liveData: LiveBrewData[];
+  liveData: LiveBrewData[] | null | undefined;
   isRunning: boolean;
   height?: number;
 }
@@ -69,7 +69,7 @@ CustomTooltip.displayName = 'CustomTooltip';
 
 export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
   profile,
-  liveData,
+  liveData = [],
   isRunning,
   height = 400
 }) => {
@@ -81,18 +81,19 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
 
   // Calculate max time from profile
   const maxTime = React.useMemo(() => {
-    if (profile.segments.length === 0) return 60;
+    if (!profile?.segments || profile.segments.length === 0) return 60;
     return Math.max(...profile.segments.map(s => s.endTime));
   }, [profile]);
 
   // Generate target curve
   const targetCurve = React.useMemo(() => {
+    if (!profile?.segments || profile.segments.length === 0) return [];
     return generateTargetCurve(profile.segments, maxTime);
-  }, [profile.segments, maxTime]);
+  }, [profile?.segments, maxTime]);
 
   // Combine target curve with live data for display
   const chartData = React.useMemo(() => {
-    if (!liveData || liveData.length === 0) {
+    if (!liveData || !Array.isArray(liveData) || liveData.length === 0) {
       // If no live data, just show target curve
       return targetCurve.map(targetPoint => ({
         time: targetPoint.time,
