@@ -14,14 +14,18 @@ interface CalibrationStep {
 
 interface CalibrationPanelProps {
   onComplete: (calibrationData: Record<number, number>) => void;
+  useBluetoothHook?: ReturnType<typeof useWebBluetooth>;
 }
 
-export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete }) => {
+export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete, useBluetoothHook }) => {
   const [steps, setSteps] = useState<CalibrationStep[]>([]);
   const [isTestingPressureCurve, setIsTestingPressureCurve] = useState(false);
   const [currentTestPressure, setCurrentTestPressure] = useState<number | null>(null);
   const [testDurationPerPressure, setTestDurationPerPressure] = useState<number>(3);
-  const { isConnected, setDimLevel, setCalibrationData, status } = useWebBluetooth();
+  
+  // Use provided hook or create new instance
+  const hookInstance = useBluetoothHook || useWebBluetooth();
+  const { isConnected, setDimLevel, setCalibrationData, status } = hookInstance;
 
   // Load saved calibration data from localStorage
   React.useEffect(() => {

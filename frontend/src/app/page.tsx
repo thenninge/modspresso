@@ -434,7 +434,7 @@ export default function Home() {
   );
 
   const renderCalibrationTab = () => (
-    <CalibrationPanel onComplete={handleCalibrationComplete} />
+    <CalibrationPanel onComplete={handleCalibrationComplete} useBluetoothHook={bluetoothHook} />
   );
 
   const renderSettingsTab = () => (
