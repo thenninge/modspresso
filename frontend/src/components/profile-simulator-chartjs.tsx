@@ -52,8 +52,10 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const chartRef = useRef<ChartJS<'line'>>(null);
 
-  // Calculate chart dimensions
-  const maxTime = Math.max(...profile.segments.map(s => s.endTime));
+  // Memoize maxTime to prevent recalculation on each render
+  const maxTime = React.useMemo(() => {
+    return Math.max(...profile.segments.map(s => s.endTime));
+  }, [profile.segments]);
 
   // Generate target curve data
   const targetCurveData = React.useMemo(() => {
@@ -99,7 +101,7 @@ export const ProfileSimulatorChartJS: React.FC<ProfileSimulatorProps> = ({
     });
     
     return data;
-  }, [profile, maxTime]);
+  }, [profile.segments, maxTime]);
 
   const startSimulation = () => {
     setIsSimulating(true);

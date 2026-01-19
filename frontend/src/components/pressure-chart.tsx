@@ -43,8 +43,8 @@ const segmentsToChartData = (segments: ProfileSegment[]) => {
   return data.sort((a, b) => a.time - b.time);
 };
 
-// Custom tooltip component
-const CustomTooltip = ({ active, payload, label }: {
+// Custom tooltip component - defined outside to prevent recreation on each render
+const CustomTooltip = React.memo(({ active, payload, label }: {
   active?: boolean;
   payload?: Array<{ value: number; dataKey: string }>;
   label?: string;
@@ -58,7 +58,9 @@ const CustomTooltip = ({ active, payload, label }: {
     );
   }
   return null;
-};
+});
+
+CustomTooltip.displayName = 'CustomTooltip';
 
 export const PressureChart: React.FC<PressureChartProps> = ({
   segments,
@@ -73,7 +75,20 @@ export const PressureChart: React.FC<PressureChartProps> = ({
     setIsMounted(true);
   }, []);
 
-  const chartData = segmentsToChartData(segments);
+  // Memoize chart data to prevent unnecessary recalculations
+  const chartData = React.useMemo(() => {
+    return segmentsToChartData(segments);
+  }, [segments]);
+
+  // Memoize maxTime to prevent recalculation
+  const maxTime = React.useMemo(() => {
+    if (chartData.length === 0) return 0;
+    return Math.max(...chartData.map(d => d.time));
+  }, [chartData]);
+
+  // Memoize chart configuration to prevent re-renders (must be before early returns)
+  const chartMargin = React.useMemo(() => ({ top: 20, right: 30, left: 20, bottom: 20 }), []);
+  const tickFormatter = React.useCallback((value: number) => `${value}s`, []);
   
   // Don't render until mounted on client
   if (!isMounted) {
@@ -94,19 +109,17 @@ export const PressureChart: React.FC<PressureChartProps> = ({
     );
   }
 
-  const maxTime = isMounted ? Math.max(...chartData.map(d => d.time)) : 0;
-
   return (
     <div className={`${className}`}>
       <ResponsiveContainer width="100%" height={height}>
         {showArea ? (
-          <AreaChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+          <AreaChart data={chartData} margin={chartMargin}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis 
               dataKey="time" 
               label={{ value: 'Tid (sekunder)', position: 'insideBottom', offset: -10 }}
               domain={[0, maxTime]}
-              tickFormatter={(value) => `${value}s`}
+              tickFormatter={tickFormatter}
             />
             <YAxis 
               label={{ value: 'Trykk (bar)', angle: -90, position: 'insideLeft' }}
@@ -123,13 +136,13 @@ export const PressureChart: React.FC<PressureChartProps> = ({
             />
           </AreaChart>
         ) : (
-          <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+          <LineChart data={chartData} margin={chartMargin}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis 
               dataKey="time" 
               label={{ value: 'Tid (sekunder)', position: 'insideBottom', offset: -10 }}
               domain={[0, maxTime]}
-              tickFormatter={(value) => `${value}s`}
+              tickFormatter={tickFormatter}
             />
             <YAxis 
               label={{ value: 'Trykk (bar)', angle: -90, position: 'insideLeft' }}
