@@ -21,8 +21,11 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
   
-  // Use provided hook or create new instance
-  const hookInstance = useBluetoothHook || useWebBluetooth();
+  // Always call hook first (React Hooks rule)
+  const defaultHook = useWebBluetooth();
+  
+  // Use provided hook or default instance (hooks must be called unconditionally)
+  const hookInstance = useBluetoothHook || defaultHook;
   
   // Use Web Bluetooth hook
   const {

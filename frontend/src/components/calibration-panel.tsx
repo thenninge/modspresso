@@ -23,8 +23,11 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete, 
   const [currentTestPressure, setCurrentTestPressure] = useState<number | null>(null);
   const [testDurationPerPressure, setTestDurationPerPressure] = useState<number>(3);
   
-  // Use provided hook or create new instance
-  const hookInstance = useBluetoothHook || useWebBluetooth();
+  // Always call hook first (React Hooks rule)
+  const defaultHook = useWebBluetooth();
+  
+  // Use provided hook or default instance (hooks must be called unconditionally)
+  const hookInstance = useBluetoothHook || defaultHook;
   const { isConnected, setDimLevel, setCalibrationData, status } = hookInstance;
 
   // Load saved calibration data from localStorage

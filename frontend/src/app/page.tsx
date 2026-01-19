@@ -556,7 +556,7 @@ export default function Home() {
   );
 
   const renderSettingsTab = () => (
-    <BluetoothSettings onConnectionChange={(connected) => {/* Connection state is managed by hook */}} useBluetoothHook={bluetoothHook} />
+    <BluetoothSettings onConnectionChange={() => {/* Connection state is managed by hook */}} useBluetoothHook={bluetoothHook} />
   );
 
   return (
