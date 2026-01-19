@@ -360,6 +360,34 @@ export const useWebBluetooth = () => {
     });
   }, [sendCommand]);
 
+  const sendSerialCommand = useCallback(async (text: string) => {
+    if (!characteristicRef.current) {
+      setError('Ikke tilkoblet til ESP32');
+      return false;
+    }
+
+    try {
+      // Try to parse as JSON first (for structured commands)
+      let commandText = text.trim();
+      try {
+        JSON.parse(commandText);
+        // Valid JSON, send as-is
+      } catch {
+        // Not valid JSON, wrap in JSON command format
+        commandText = JSON.stringify({ command: commandText });
+      }
+
+      const encoder = new TextEncoder();
+      const data = encoder.encode(commandText);
+      await characteristicRef.current.writeValue(data);
+      return true;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ukjent feil';
+      setError(`Kunne ikke sende kommando: ${errorMessage}`);
+      return false;
+    }
+  }, []);
+
   return {
     // State
     isSupported,
@@ -375,6 +403,7 @@ export const useWebBluetooth = () => {
     connectToDevice,
     disconnect,
     sendCommand,
+    sendSerialCommand,
     
     // ESP32 specific commands
     startProfile,

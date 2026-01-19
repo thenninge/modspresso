@@ -31,8 +31,11 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
     scanForDevices,
     connectToDevice,
     disconnect,
-    getStatus
+    getStatus,
+    sendSerialCommand
   } = useWebBluetooth();
+
+  const [serialInput, setSerialInput] = useState('');
   
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
@@ -59,6 +62,15 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
   const handleScanDevices = async () => {
     const foundDevices = await scanForDevices();
     setDevices(foundDevices);
+  };
+
+  const handleSendSerial = async () => {
+    if (!serialInput.trim() || !isConnected) return;
+    
+    const command = serialInput.trim();
+    setSerialInput(''); // Clear input
+    
+    await sendSerialCommand(command);
   };
 
   const handleConnect = async () => {
@@ -400,9 +412,39 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
             )}
           </div>
           
-          <p className="text-xs text-gray-500 mt-2">
-            Viser Serial output fra ESP32 via Bluetooth. Log-meldinger sendes automatisk.
-          </p>
+          
+          {/* Serial Input */}
+          <div className="mt-4 flex space-x-2">
+            <input
+              type="text"
+              value={serialInput}
+              onChange={(e) => setSerialInput(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === 'Enter' && serialInput.trim()) {
+                  await handleSendSerial();
+                }
+              }}
+              placeholder="Skriv kommando her (trykk Enter for å sende)..."
+              disabled={!isConnected}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm font-mono bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+            <button
+              onClick={handleSendSerial}
+              disabled={!isConnected || !serialInput.trim()}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors"
+            >
+              Send
+            </button>
+          </div>
+
+          <div className="mt-2 space-y-1">
+            <p className="text-xs text-gray-500">
+              Viser Serial output fra ESP32 via Bluetooth. Log-meldinger sendes automatisk.
+            </p>
+            <p className="text-xs text-gray-500">
+              Eksempel-kommandoer: <code className="bg-gray-100 px-1 rounded">{"get_status"}</code> eller <code className="bg-gray-100 px-1 rounded">{"{command: 'get_status'}"}</code>
+            </p>
+          </div>
         </div>
       )}
     </div>
