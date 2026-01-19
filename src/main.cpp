@@ -113,21 +113,9 @@ void sendLogMessage(const char* message, const char* level = "info");
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       deviceConnected = true;
-      Serial.println("Device connected - waiting before sending initial messages...");
+      Serial.println("Device connected");
       digitalWrite(LED_PIN, HIGH);
-      
-      // Wait longer to ensure notifications are fully set up on client side
-      delay(500); // Give Web Bluetooth time to complete startNotifications()
-      
-      Serial.println("Sending initial status update...");
-      sendStatusUpdate();
-      
-      delay(100); // Small delay between messages
-      
-      Serial.println("Sending initial log message...");
-      sendLogMessage("ESP32 connected and ready", "info");
-      
-      Serial.println("Initial messages sent");
+      // Don't send messages here - wait for loop() to handle it after notifications are ready
     };
 
     void onDisconnect(BLEServer* pServer) {
@@ -269,8 +257,21 @@ void loop() {
     oldDeviceConnected = deviceConnected;
   }
   
+  // New connection detected - send initial messages after delay to ensure notifications are ready
   if (deviceConnected && !oldDeviceConnected) {
     oldDeviceConnected = deviceConnected;
+    
+    // Wait a bit to ensure Web Bluetooth has fully set up notifications
+    delay(800); // Give Web Bluetooth time to complete startNotifications()
+    
+    Serial.println("Sending initial messages after connection...");
+    sendStatusUpdate();
+    delay(100);
+    sendLogMessage("ESP32 connected and ready", "info");
+    delay(100);
+    sendLogMessage("Serial Monitor ready - you can send commands via Serial or BLE", "info");
+    
+    Serial.println("Initial messages sent");
   }
 
   // Handle profile execution
