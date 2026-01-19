@@ -503,7 +503,8 @@ void executeProfile() {
     return;
   }
   
-  unsigned long currentTime = (millis() - startTime) / 1000; // Convert to seconds
+  // Calculate current time with 1 decimal precision
+  float currentTime = (float)(millis() - startTime) / 1000.0f; // Convert to seconds with 1 decimal
   
   // Safety check: ensure currentSegment is valid
   if (!profileDoc || !profileSegments || profileSegments.size() == 0 || currentSegment >= profileSegments.size()) {
@@ -545,8 +546,8 @@ void executeProfile() {
   
   // Log when entering a new segment
   static int lastLoggedSegment = -1;
-  if (currentSegment != lastLoggedSegment && currentTime >= segmentStartTime) {
-    String msg = "Profile segment " + String(currentSegment + 1) + "/" + String(totalSegments) + 
+  if (currentSegment != lastLoggedSegment && currentTime >= (float)segmentStartTime) {
+    String msg = "[" + String(currentTime, 1) + "s] Profile segment " + String(currentSegment + 1) + "/" + String(totalSegments) + 
                  ": " + String(segmentStartTime) + "s-" + String(segmentEndTime) + "s, " + 
                  String(startPressure, 1) + "→" + String(endPressure, 1) + " bar";
     Serial.println(msg);
@@ -557,7 +558,7 @@ void executeProfile() {
   // Debug: Log current time and segment info every 5 seconds
   static unsigned long lastDebugTime = 0;
   if (millis() - lastDebugTime >= 5000) {
-    String debugMsg = "DEBUG: currentTime=" + String(currentTime) + "s, segment=" + String(currentSegment) + 
+    String debugMsg = "[" + String(currentTime, 1) + "s] DEBUG: currentTime=" + String(currentTime, 1) + "s, segment=" + String(currentSegment) + 
                       ", startTime=" + String(segmentStartTime) + "s, endTime=" + String(segmentEndTime) + 
                       "s, isRunning=" + String(isRunning) + ", totalSegments=" + String(totalSegments);
     Serial.println(debugMsg);
@@ -565,7 +566,7 @@ void executeProfile() {
   }
   
   // Check if we're before the segment starts
-  if (currentTime < segmentStartTime) {
+  if (currentTime < (float)segmentStartTime) {
     // Not yet time for this segment, wait
     // Set dim level to 0 while waiting
     if (currentSegment == 0) {
@@ -574,17 +575,17 @@ void executeProfile() {
     return;
   }
   
-  if (currentTime >= segmentStartTime && currentTime <= segmentEndTime) {
+  if (currentTime >= (float)segmentStartTime && currentTime <= (float)segmentEndTime) {
     // Calculate target pressure for current time
     int segmentDuration = segmentEndTime - segmentStartTime;
     if (segmentDuration <= 0) {
       // Safety check: avoid division by zero
-      Serial.println("ERROR: Segment duration is zero or negative (start=" + String(segmentStartTime) + ", end=" + String(segmentEndTime) + ")");
+      Serial.println("[" + String(currentTime, 1) + "s] ERROR: Segment duration is zero or negative (start=" + String(segmentStartTime) + ", end=" + String(segmentEndTime) + ")");
       stopProfile();
       return;
     }
     
-    float progress = (float)(currentTime - segmentStartTime) / (float)segmentDuration;
+    float progress = (currentTime - (float)segmentStartTime) / (float)segmentDuration;
     // Clamp progress between 0 and 1
     if (progress < 0.0f) progress = 0.0f;
     if (progress > 1.0f) progress = 1.0f;
@@ -619,7 +620,7 @@ void executeProfile() {
     }
     
     if (shouldLog) {
-      String msg = "Brew: " + String(currentTime) + "s | Target: " + String(targetPressure, 1) + " bar | Dim: " + String(dimLevel) + "%";
+      String msg = "[" + String(currentTime, 1) + "s] Brew: Target: " + String(targetPressure, 1) + " bar | Dim: " + String(dimLevel) + "%";
       Serial.println(msg);
       sendLogMessage(msg.c_str(), "info");
       lastLoggedDimLevel = dimLevel;
@@ -635,9 +636,9 @@ void executeProfile() {
     update["target_pressure"] = targetPressure;
     update["current_time"] = currentTime;
     sendResponse(update);
-  } else if (currentTime > segmentEndTime) {
+  } else if (currentTime > (float)segmentEndTime) {
     // Move to next segment
-    Serial.println("Moving to next segment: currentTime=" + String(currentTime) + "s > segmentEndTime=" + String(segmentEndTime) + "s");
+    Serial.println("[" + String(currentTime, 1) + "s] Moving to next segment: " + String(currentTime, 1) + "s > " + String(segmentEndTime) + "s");
     currentSegment++;
     lastLoggedSegment = currentSegment - 1; // Reset so new segment gets logged
   }
