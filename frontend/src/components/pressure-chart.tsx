@@ -62,7 +62,7 @@ const CustomTooltip = React.memo(({ active, payload, label }: {
 
 CustomTooltip.displayName = 'CustomTooltip';
 
-export const PressureChart: React.FC<PressureChartProps> = ({
+const PressureChartComponent: React.FC<PressureChartProps> = ({
   segments,
   width = 600,
   height = 400,
@@ -163,5 +163,40 @@ export const PressureChart: React.FC<PressureChartProps> = ({
     </div>
   );
 };
+
+// Memoize with deep comparison of segments to prevent re-renders when parent re-renders
+const PressureChart = React.memo(PressureChartComponent, (prevProps, nextProps) => {
+  // Compare segments deeply
+  if (prevProps.segments.length !== nextProps.segments.length) {
+    return false; // Re-render if segment count changed
+  }
+  
+  for (let i = 0; i < prevProps.segments.length; i++) {
+    const prev = prevProps.segments[i];
+    const next = nextProps.segments[i];
+    if (
+      prev.startTime !== next.startTime ||
+      prev.endTime !== next.endTime ||
+      prev.startPressure !== next.startPressure ||
+      prev.endPressure !== next.endPressure
+    ) {
+      return false; // Re-render if any segment changed
+    }
+  }
+  
+  // Compare other props
+  if (
+    prevProps.width !== nextProps.width ||
+    prevProps.height !== nextProps.height ||
+    prevProps.showArea !== nextProps.showArea ||
+    prevProps.className !== nextProps.className
+  ) {
+    return false; // Re-render if other props changed
+  }
+  
+  return true; // Don't re-render - props are the same
+});
+
+PressureChart.displayName = 'PressureChart';
 
 export default PressureChart;

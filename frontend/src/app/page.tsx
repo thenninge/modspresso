@@ -396,7 +396,8 @@ export default function Home() {
               </div>
             )}
             <div className="flex space-x-2">
-              {esp32Status?.is_running ? (
+              {/* Use esp32Status directly here without adding to dependencies - button state will update via parent re-render */}
+              {(bluetoothHook.status?.is_running ?? false) ? (
                 <button 
                   onClick={() => handleStartProfile(profile)}
                   className="flex items-center px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
@@ -418,7 +419,7 @@ export default function Home() {
         </div>
       );
     });
-  }, [profiles, defaultProfile1, defaultProfile2, esp32Status?.is_running, handleSetDefaultProfile, handleStartProfile]);
+  }, [profiles, defaultProfile1, defaultProfile2, handleSetDefaultProfile, handleStartProfile, bluetoothHook]);
 
   // Memoize profiles tab profile cards
   const profilesTabCards = useMemo(() => {
@@ -468,27 +469,16 @@ export default function Home() {
           </div>
 
           <div className="flex justify-between items-center">
-            <div className="flex space-x-2">
-              <button 
-                onClick={() => handleStartProfile(profile)}
-                className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
-              >
-                <Play size={14} className="mr-1" />
-                Kjør
-              </button>
-              <button
-                onClick={() => setSimulatingProfile(profile)}
-                className="flex items-center px-3 py-1 bg-purple-500 text-white rounded text-sm hover:bg-purple-600"
-              >
-                <BarChart3 size={14} className="mr-1" />
-                Simuler
-              </button>
-            </div>
+            <ProfileRunButton 
+              profile={profile} 
+              onStartProfile={handleStartProfile}
+              onSimulate={setSimulatingProfile}
+            />
           </div>
         </div>
       );
     });
-  }, [profiles, esp32Status?.is_running, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile]);
+  }, [profiles, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile]);
 
   const renderBrewTab = () => {
     // Find currently running profile
