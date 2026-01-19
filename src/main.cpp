@@ -506,8 +506,11 @@ void executeProfile() {
   unsigned long currentTime = (millis() - startTime) / 1000; // Convert to seconds
   
   // Safety check: ensure currentSegment is valid
-  if (!profileSegments || currentSegment >= profileSegments.size()) {
-    Serial.println("ERROR: Invalid segment index");
+  if (!profileDoc || !profileSegments || profileSegments.size() == 0 || currentSegment >= profileSegments.size()) {
+    Serial.println("ERROR: Invalid segment index - profileDoc=" + String(profileDoc != NULL ? "OK" : "NULL") + 
+                   ", profileSegments.size()=" + String(profileSegments.size()) + 
+                   ", currentSegment=" + String(currentSegment) + 
+                   ", totalSegments=" + String(totalSegments));
     stopProfile();
     return;
   }
@@ -851,12 +854,78 @@ void sendStatusUpdate() {
 
 void checkHardwareButtons() {
   // Read button states
+  // Note: INPUT_PULLUP means LOW = pressed, HIGH = not pressed (0 = button off)
   bool button1State = digitalRead(BUTTON_1_PIN);
   bool button2State = digitalRead(BUTTON_2_PIN);
   
   unsigned long currentTime = millis();
   
-  // Check button 1 (Profile 1)
+  // IMPORTANT SAFETY FEATURE: Emergency stop
+  // If a button is released (goes HIGH/0) while profile is running, stop the profile immediately
+  if (isRunning) {
+    // Check if button 1 was released (HIGH = not pressed)
+    if (button1State == HIGH && lastButton1State == LOW) {
+      // Button 1 was released while profile is running - EMERGENCY STOP
+      String msg = "[EMERGENCY STOP] SW1 (Button 1) released - stopping brew profile immediately!";
+      Serial.println(msg);
+      sendLogMessage(msg.c_str(), "error");
+      stopProfile();
+      lastButton1State = button1State;
+      lastButton1Time = currentTime;
+      return;
+    }
+    
+    // Check if button 2 was released (HIGH = not pressed)
+    if (button2State == HIGH && lastButton2State == LOW) {
+      // Button 2 was released while profile is running - EMERGENCY STOP
+      String msg = "[EMERGENCY STOP] SW2 (Button 2) released - stopping brew profile immediately!";
+      Serial.println(msg);
+      sendLogMessage(msg.c_str(), "error");
+      stopProfile();
+      lastButton2State = button2State;
+      lastButton2Time = currentTime;
+      return;
+    }
+    
+    // Also check if button state changes to HIGH while running (continuous monitoring)
+    if (button1State == HIGH && isRunning) {
+      // Button 1 is not pressed while profile is running - stop it
+      // Only log once per state change to avoid spam
+      static bool lastButton1EmergencyState = false;
+      if (!lastButton1EmergencyState) {
+        String msg = "[EMERGENCY STOP] SW1 (Button 1) not pressed - stopping brew profile!";
+        Serial.println(msg);
+        sendLogMessage(msg.c_str(), "error");
+        stopProfile();
+        lastButton1EmergencyState = true;
+      }
+      lastButton1State = button1State;
+      return;
+    } else if (button1State == LOW) {
+      static bool lastButton1EmergencyState = false;
+      lastButton1EmergencyState = false; // Reset when button is pressed again
+    }
+    
+    if (button2State == HIGH && isRunning) {
+      // Button 2 is not pressed while profile is running - stop it
+      // Only log once per state change to avoid spam
+      static bool lastButton2EmergencyState = false;
+      if (!lastButton2EmergencyState) {
+        String msg = "[EMERGENCY STOP] SW2 (Button 2) not pressed - stopping brew profile!";
+        Serial.println(msg);
+        sendLogMessage(msg.c_str(), "error");
+        stopProfile();
+        lastButton2EmergencyState = true;
+      }
+      lastButton2State = button2State;
+      return;
+    } else if (button2State == LOW) {
+      static bool lastButton2EmergencyState = false;
+      lastButton2EmergencyState = false; // Reset when button is pressed again
+    }
+  }
+  
+  // Check button 1 (Profile 1) - normal operation (only when not running)
   if (button1State != lastButton1State) {
     if (currentTime - lastButton1Time > DEBOUNCE_DELAY) {
       if (button1State == LOW) {
@@ -889,7 +958,7 @@ void checkHardwareButtons() {
     lastButton1State = button1State;
   }
   
-  // Check button 2 (Profile 2)
+  // Check button 2 (Profile 2) - normal operation (only when not running)
   if (button2State != lastButton2State) {
     if (currentTime - lastButton2Time > DEBOUNCE_DELAY) {
       if (button2State == LOW) {
