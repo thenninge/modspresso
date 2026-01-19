@@ -364,7 +364,10 @@ void startProfile(JsonObject profile) {
   startTime = millis();
   isRunning = true;
   
-  Serial.println("Profile started with " + String(totalSegments) + " segments");
+  String profileName = profile["name"] | "Unnamed";
+  String logMsg = "Brew profile started: \"" + profileName + "\" (" + String(totalSegments) + " segments)";
+  Serial.println(logMsg);
+  sendLogMessage(logMsg.c_str(), "info");
   
   // Send confirmation
   DynamicJsonDocument response(256);
@@ -377,10 +380,14 @@ void stopProfile() {
   isRunning = false;
   setDimLevel(0);
   
-  Serial.println("Profile stopped");
+  unsigned long duration = (millis() - startTime) / 1000; // Duration in seconds
+  String logMsg = "Brew profile finished (duration: " + String(duration) + "s)";
+  Serial.println(logMsg);
+  sendLogMessage(logMsg.c_str(), "info");
   
   DynamicJsonDocument response(256);
   response["status"] = "profile_stopped";
+  response["duration"] = duration;
   sendResponse(response);
 }
 
@@ -537,7 +544,9 @@ void setCalibrationData(JsonObject calibration) {
   
   if (validPoints > 0) {
     isCalibrated = true;
-    Serial.println("Calibration data set successfully with " + String(validPoints) + " valid points");
+    String logMsg = "Calibration data saved: " + String(validPoints) + " valid points (" + String(totalPoints) + " total)";
+    Serial.println(logMsg);
+    sendLogMessage(logMsg.c_str(), "info");
     
     // Send detailed confirmation
     DynamicJsonDocument response(512);
@@ -743,17 +752,25 @@ bool storeProfile(uint8_t id, JsonObject profileData) {
 }
 
 void setDefaultProfile(int button, uint8_t profileId) {
+  String buttonName = (button == 1) ? "SW1" : "SW2";
+  
   if (profileId >= 10) {
-    Serial.println("Invalid profile ID: " + String(profileId));
+    String errorMsg = "Invalid profile ID: " + String(profileId);
+    Serial.println(errorMsg);
+    sendLogMessage(errorMsg.c_str(), "error");
     return;
   }
   
   if (button == 1) {
     defaultProfile1 = profileId;
-    Serial.println("Default profile 1 set to: " + String(profileId));
+    String logMsg = "Synced: " + buttonName + " (Button 1) -> Profile ID " + String(profileId);
+    Serial.println(logMsg);
+    sendLogMessage(logMsg.c_str(), "info");
   } else if (button == 2) {
     defaultProfile2 = profileId;
-    Serial.println("Default profile 2 set to: " + String(profileId));
+    String logMsg = "Synced: " + buttonName + " (Button 2) -> Profile ID " + String(profileId);
+    Serial.println(logMsg);
+    sendLogMessage(logMsg.c_str(), "info");
   }
   
   // Send confirmation
