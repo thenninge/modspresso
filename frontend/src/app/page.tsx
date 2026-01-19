@@ -145,7 +145,19 @@ export default function Home() {
       return;
     }
     
+    // Ask user if they want to clear existing profiles first
+    const clearFirst = confirm(
+      'Vil du slette alle eksisterende profiler på ESP32 før synkronisering?\n\n' +
+      'Ja = Slett alle gamle profiler først (anbefalt)\n' +
+      'Nei = Overskriv kun profiler med samme ID'
+    );
+    
     try {
+      // Clear all profiles on ESP32 if user requested
+      if (clearFirst) {
+        await bluetoothHook.clearAllProfiles();
+        await new Promise(resolve => setTimeout(resolve, 200)); // Wait a bit after clearing
+      }
       // First, send profiles assigned to buttons 1 and 2 with their button IDs
       // Profiles assigned to button 1 get ID 1, button 2 gets ID 2
       if (defaultProfile1) {

@@ -494,6 +494,12 @@ export const useWebBluetooth = () => {
     });
   }, [sendCommand]);
 
+  const clearAllProfiles = useCallback(async () => {
+    return await sendCommand({
+      command: 'clear_all_profiles'
+    });
+  }, [sendCommand]);
+
   return {
     // State
     isSupported,
@@ -519,6 +525,7 @@ export const useWebBluetooth = () => {
     setCalibrationData,
     getStatus,
     storeProfile,
-    setDefaultProfileForButton
+    setDefaultProfileForButton,
+    clearAllProfiles
   };
 };

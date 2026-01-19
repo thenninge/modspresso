@@ -364,6 +364,25 @@ void handleCommand(const char* command) {
       response["error"] = "firmware_url not provided";
       sendResponse(response);
     }
+  } else if (cmd == "clear_all_profiles") {
+    // Clear all stored profiles
+    for (int i = 0; i < 10; i++) {
+      storedProfiles[i].id = 255; // Mark as empty
+      storedProfiles[i].name[0] = '\0';
+      storedProfiles[i].segmentCount = 0;
+      storedProfiles[i].totalDuration = 0;
+      storedProfiles[i].checksum = 0;
+    }
+    profileCount = 0;
+    
+    String logMsg = "All profiles cleared on ESP32";
+    Serial.println(logMsg);
+    sendLogMessage(logMsg.c_str(), "info");
+    
+    DynamicJsonDocument response(256);
+    response["status"] = "profiles_cleared";
+    response["profile_count"] = 0;
+    sendResponse(response);
   }
 }
 
