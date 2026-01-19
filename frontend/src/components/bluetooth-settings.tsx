@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Bluetooth, WifiOff, RefreshCw, CheckCircle, XCircle, AlertCircle, Terminal } from 'lucide-react';
-import { useWebBluetooth } from '@/hooks/use-web-bluetooth';
+import type { useWebBluetooth } from '@/hooks/use-web-bluetooth';
 
 interface BluetoothDevice {
   id: string;
@@ -11,21 +11,15 @@ interface BluetoothDevice {
 
 interface BluetoothSettingsProps {
   onConnectionChange?: (connected: boolean) => void;
-  useBluetoothHook?: ReturnType<typeof useWebBluetooth>;
+  bluetoothHook: ReturnType<typeof useWebBluetooth>;
 }
 
 export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({ 
   onConnectionChange,
-  useBluetoothHook
+  bluetoothHook
 }) => {
   const [devices, setDevices] = useState<BluetoothDevice[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
-  
-  // Always call hook first (React Hooks rule)
-  const defaultHook = useWebBluetooth();
-  
-  // Use provided hook or default instance (hooks must be called unconditionally)
-  const hookInstance = useBluetoothHook || defaultHook;
   
   // Use Web Bluetooth hook
   const {
@@ -41,7 +35,7 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
     disconnect,
     getStatus,
     sendSerialCommand
-  } = hookInstance;
+  } = bluetoothHook;
 
   const [serialInput, setSerialInput] = useState('');
   

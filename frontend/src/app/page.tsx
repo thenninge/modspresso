@@ -552,11 +552,11 @@ export default function Home() {
   );
 
   const renderCalibrationTab = () => (
-    <CalibrationPanel onComplete={handleCalibrationComplete} useBluetoothHook={bluetoothHook} />
+    <CalibrationPanel onComplete={handleCalibrationComplete} bluetoothHook={bluetoothHook} />
   );
 
   const renderSettingsTab = () => (
-    <BluetoothSettings onConnectionChange={() => {/* Connection state is managed by hook */}} useBluetoothHook={bluetoothHook} />
+    <BluetoothSettings onConnectionChange={() => {/* Connection state is managed by hook */}} bluetoothHook={bluetoothHook} />
   );
 
   return (

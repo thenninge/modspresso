@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Play, Square, RotateCcw, Save, AlertTriangle, CheckCircle, Send, Download, TestTube, Clock } from 'lucide-react';
-import { useWebBluetooth } from '@/hooks/use-web-bluetooth';
+import type { useWebBluetooth } from '@/hooks/use-web-bluetooth';
 import CalibrationChart from './calibration-chart';
 
 interface CalibrationStep {
@@ -14,21 +14,16 @@ interface CalibrationStep {
 
 interface CalibrationPanelProps {
   onComplete: (calibrationData: Record<number, number>) => void;
-  useBluetoothHook?: ReturnType<typeof useWebBluetooth>;
+  bluetoothHook: ReturnType<typeof useWebBluetooth>;
 }
 
-export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete, useBluetoothHook }) => {
+export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete, bluetoothHook }) => {
   const [steps, setSteps] = useState<CalibrationStep[]>([]);
   const [isTestingPressureCurve, setIsTestingPressureCurve] = useState(false);
   const [currentTestPressure, setCurrentTestPressure] = useState<number | null>(null);
   const [testDurationPerPressure, setTestDurationPerPressure] = useState<number>(3);
   
-  // Always call hook first (React Hooks rule)
-  const defaultHook = useWebBluetooth();
-  
-  // Use provided hook or default instance (hooks must be called unconditionally)
-  const hookInstance = useBluetoothHook || defaultHook;
-  const { isConnected, setDimLevel, setCalibrationData, status } = hookInstance;
+  const { isConnected, setDimLevel, setCalibrationData, status } = bluetoothHook;
 
   // Load saved calibration data from localStorage
   React.useEffect(() => {
