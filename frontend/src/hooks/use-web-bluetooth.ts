@@ -240,7 +240,12 @@ export const useWebBluetooth = () => {
                 current_segment: data.current_segment ?? 0,
                 total_segments: data.total_segments ?? 0,
                 uptime: data.uptime ?? 0,
-                is_calibrated: data.is_calibrated ?? false
+                is_calibrated: data.is_calibrated ?? false,
+                profile_count: data.profile_count,
+                default_profile1: data.default_profile1,
+                default_profile2: data.default_profile2,
+                default_profile1_name: data.default_profile1_name,
+                default_profile2_name: data.default_profile2_name
               };
               console.log('Setting status:', statusData); // Debug logging
               setStatus(statusData);
