@@ -494,6 +494,9 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
             <p className="text-xs text-gray-500">
               Eksempel-kommandoer: <code className="bg-gray-100 px-1 rounded">{"get_status"}</code> eller <code className="bg-gray-100 px-1 rounded">{"{command: 'get_status'}"}</code>
             </p>
+            <p className="text-xs text-gray-500 mt-2">
+              PWM test mode: <code className="bg-gray-100 px-1 rounded">{"{\"command\":\"set_pwm_test_mode\",\"enable\":true}"}</code> (aktiver) eller <code className="bg-gray-100 px-1 rounded">{"{\"command\":\"set_pwm_test_mode\",\"enable\":false}"}</code> (deaktiver)
+            </p>
           </div>
         </div>
       )}
