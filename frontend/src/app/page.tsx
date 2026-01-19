@@ -467,31 +467,12 @@ export default function Home() {
                 </button>
               </div>
             )}
-            <div className="flex space-x-2">
-              {/* Use esp32Status directly here without adding to dependencies - button state will update via parent re-render */}
-              {(bluetoothHook.status?.is_running ?? false) ? (
-                <button 
-                  onClick={() => handleStartProfile(profile)}
-                  className="flex items-center px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
-                >
-                  <X size={14} className="mr-1" />
-                  Stop
-                </button>
-              ) : (
-                <button 
-                  onClick={() => handleStartProfile(profile)}
-                  className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
-                >
-                  <Play size={14} className="mr-1" />
-                  Brew
-                </button>
-              )}
-            </div>
+            <BrewButton profile={profile} onStartProfile={handleStartProfile} />
           </div>
         </div>
       );
     });
-  }, [profiles, defaultProfile1, defaultProfile2, handleSetDefaultProfile, handleStartProfile, bluetoothHook]);
+  }, [profiles, defaultProfile1, defaultProfile2, handleSetDefaultProfile, handleStartProfile, BrewButton]);
 
   // Memoize profiles tab profile cards
   const profilesTabCards = useMemo(() => {
