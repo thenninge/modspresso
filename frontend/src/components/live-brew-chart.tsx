@@ -92,12 +92,24 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
 
   // Combine target curve with live data for display
   const chartData = React.useMemo(() => {
+    if (!liveData || liveData.length === 0) {
+      // If no live data, just show target curve
+      return targetCurve.map(targetPoint => ({
+        time: targetPoint.time,
+        target: targetPoint.target,
+        current: null,
+        target_pressure: null
+      }));
+    }
+
     // Create a map of live data points by time
     const liveMap = new Map<number, LiveBrewData>();
     liveData.forEach(point => {
-      const roundedTime = Math.round(point.time * 2) / 2; // Round to 0.5s
-      if (!liveMap.has(roundedTime) || liveMap.get(roundedTime)!.timestamp < point.timestamp) {
-        liveMap.set(roundedTime, point);
+      if (point && typeof point.time === 'number') {
+        const roundedTime = Math.round(point.time * 2) / 2; // Round to 0.5s
+        if (!liveMap.has(roundedTime) || (liveMap.get(roundedTime)?.timestamp || 0) < (point.timestamp || 0)) {
+          liveMap.set(roundedTime, point);
+        }
       }
     });
 
@@ -107,8 +119,8 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
       return {
         time: targetPoint.time,
         target: targetPoint.target,
-        current: livePoint ? livePoint.current_pressure : null,
-        target_pressure: livePoint ? livePoint.target_pressure : null
+        current: livePoint ? (livePoint.current_pressure || null) : null,
+        target_pressure: livePoint ? (livePoint.target_pressure || null) : null
       };
     });
   }, [targetCurve, liveData]);

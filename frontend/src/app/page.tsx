@@ -26,7 +26,8 @@ export default function Home() {
   // Use Web Bluetooth hook at top level to maintain connection across tab switches
   const bluetoothHook = useWebBluetooth();
   const bluetoothConnected = bluetoothHook.isConnected;
-  const { status: esp32Status, liveBrewData } = bluetoothHook;
+  const esp32Status = bluetoothHook.status;
+  const liveBrewData = bluetoothHook.liveBrewData || [];
 
   React.useEffect(() => {
     setIsMounted(true);
@@ -454,7 +455,8 @@ export default function Home() {
 
   const renderBrewTab = () => {
     // Find currently running profile
-    const runningProfile = esp32Status?.is_running 
+    const isRunning = esp32Status?.is_running || false;
+    const runningProfile = isRunning 
       ? profiles.find(p => {
           // Try to match by name or check if it's one of the default profiles
           const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
@@ -466,7 +468,7 @@ export default function Home() {
     return (
       <div className="space-y-6">
         {/* Live Brew Chart - show when profile is running */}
-        {esp32Status?.is_running && runningProfile && liveBrewData.length > 0 && (
+        {isRunning && runningProfile && liveBrewData && liveBrewData.length > 0 && (
           <div className="bg-white rounded-lg shadow-md p-6">
             <LiveBrewChart 
               profile={runningProfile}
