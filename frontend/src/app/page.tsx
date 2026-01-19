@@ -60,7 +60,7 @@ export default function Home() {
     setEditingProfile(undefined);
   };
 
-  const handleEditProfile = (profile: Profile) => {
+  const handleEditProfile = useCallback((profile: Profile) => {
     const isPredefined = predefinedProfiles.some(p => p.id === profile.id);
     if (isPredefined) {
       // Create a copy of predefined profile with new ID
