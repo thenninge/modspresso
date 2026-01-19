@@ -488,6 +488,17 @@ void startProfile(JsonObject profile) {
   startTime = millis();
   isRunning = true;
   
+  // IMPORTANT: Update button state tracking to match actual button state when profile starts
+  // This prevents false emergency stops right after profile start
+  // Note: startProfile() is called from BLE, so we don't know which button triggered it
+  // But we can still initialize states to prevent false positives
+  lastButton1State = digitalRead(BUTTON_1_PIN);  // Read actual state
+  lastButton2State = digitalRead(BUTTON_2_PIN);  // Read actual state
+  lastButton1Time = millis();
+  lastButton2Time = millis();
+  Serial.println("DEBUG: Updated button states at profile start - Button1: " + String(lastButton1State == LOW ? "LOW (pressed)" : "HIGH (not pressed)") + 
+                 ", Button2: " + String(lastButton2State == LOW ? "LOW (pressed)" : "HIGH (not pressed)"));
+  
   String profileName = profile["name"] | "Unnamed";
   String logMsg = "Brew profile started: \"" + profileName + "\" (" + String(totalSegments) + " segments)";
   Serial.println(logMsg);
@@ -957,39 +968,54 @@ void checkHardwareButtons() {
       return;
     }
     
-    // Also check if button state changes to HIGH while running (continuous monitoring)
+    // Check if button state is HIGH while running (button not pressed during operation)
+    // Only check for HIGH if we've had at least one loop cycle with the button in the correct state
+    // This prevents false emergency stops right after profile start
+    static bool button1StateInitialized = false;
+    static bool button2StateInitialized = false;
+    
     if (button1State == HIGH && isRunning) {
       // Button 1 is not pressed while profile is running - stop it
-      // Only log once per state change to avoid spam
-      static bool lastButton1EmergencyState = false;
-      if (!lastButton1EmergencyState) {
-        String msg = "[EMERGENCY STOP] SW1 (Button 1) not pressed - stopping brew profile!";
-        Serial.println(msg);
-        sendLogMessage(msg.c_str(), "error");
-        stopProfile();
-        lastButton1EmergencyState = true;
+      // BUT: Only if we've confirmed the button was LOW when profile started
+      if (button1StateInitialized) {
+        // Only log once per state change to avoid spam
+        static bool lastButton1EmergencyState = false;
+        if (!lastButton1EmergencyState) {
+          String msg = "[EMERGENCY STOP] SW1 (Button 1) not pressed - stopping brew profile!";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "error");
+          stopProfile();
+          lastButton1EmergencyState = true;
+        }
+        lastButton1State = button1State;
+        return;
       }
-      lastButton1State = button1State;
-      return;
-    } else if (button1State == LOW) {
+    } else if (button1State == LOW && isRunning) {
+      // Button is pressed - mark as initialized and reset emergency flag
+      button1StateInitialized = true;
       static bool lastButton1EmergencyState = false;
       lastButton1EmergencyState = false; // Reset when button is pressed again
     }
     
     if (button2State == HIGH && isRunning) {
       // Button 2 is not pressed while profile is running - stop it
-      // Only log once per state change to avoid spam
-      static bool lastButton2EmergencyState = false;
-      if (!lastButton2EmergencyState) {
-        String msg = "[EMERGENCY STOP] SW2 (Button 2) not pressed - stopping brew profile!";
-        Serial.println(msg);
-        sendLogMessage(msg.c_str(), "error");
-        stopProfile();
-        lastButton2EmergencyState = true;
+      // BUT: Only if we've confirmed the button was LOW when profile started
+      if (button2StateInitialized) {
+        // Only log once per state change to avoid spam
+        static bool lastButton2EmergencyState = false;
+        if (!lastButton2EmergencyState) {
+          String msg = "[EMERGENCY STOP] SW2 (Button 2) not pressed - stopping brew profile!";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "error");
+          stopProfile();
+          lastButton2EmergencyState = true;
+        }
+        lastButton2State = button2State;
+        return;
       }
-      lastButton2State = button2State;
-      return;
-    } else if (button2State == LOW) {
+    } else if (button2State == LOW && isRunning) {
+      // Button is pressed - mark as initialized and reset emergency flag
+      button2StateInitialized = true;
       static bool lastButton2EmergencyState = false;
       lastButton2EmergencyState = false; // Reset when button is pressed again
     }
