@@ -240,6 +240,7 @@ export const useWebBluetooth = () => {
               console.log('Setting status:', statusData); // Debug logging
               setStatus(statusData);
             } else if (data.type === 'serial_log') {
+              console.log('Received serial_log message:', data); // Debug logging
               // Add log entry to serial logs (keep last 500 entries)
               setSerialLogs(prev => {
                 const newLogs = [...prev, {
@@ -247,6 +248,7 @@ export const useWebBluetooth = () => {
                   level: data.level || 'info',
                   timestamp: data.timestamp || Date.now()
                 }];
+                console.log('Updated serialLogs, new count:', newLogs.length); // Debug logging
                 return newLogs.slice(-500); // Keep last 500 entries
               });
             } else {
