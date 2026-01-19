@@ -346,6 +346,78 @@ export default function Home() {
     return isMounted && defaultProfile2 ? profiles.find(p => p.id === defaultProfile2)?.name || 'Ukjent' : 'Ikke satt';
   }, [isMounted, defaultProfile2, profiles]);
 
+  // Separate component for Brew/Stop button to prevent re-rendering charts when status changes
+  const BrewButton = React.memo(({ profile, onStartProfile }: { profile: Profile; onStartProfile: (profile: Profile) => void }) => {
+    const isRunning = bluetoothHook.status?.is_running ?? false;
+    return (
+      <div className="flex space-x-2">
+        {isRunning ? (
+          <button 
+            onClick={() => onStartProfile(profile)}
+            className="flex items-center px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+          >
+            <X size={14} className="mr-1" />
+            Stop
+          </button>
+        ) : (
+          <button 
+            onClick={() => onStartProfile(profile)}
+            className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+          >
+            <Play size={14} className="mr-1" />
+            Brew
+          </button>
+        )}
+      </div>
+    );
+  }, (prevProps, nextProps) => {
+    // Only re-render if profile ID changed
+    return prevProps.profile.id === nextProps.profile.id && prevProps.onStartProfile === nextProps.onStartProfile;
+  });
+  BrewButton.displayName = 'BrewButton';
+
+  const ProfileRunButton = React.memo(({ profile, onStartProfile, onSimulate }: { 
+    profile: Profile; 
+    onStartProfile: (profile: Profile) => void;
+    onSimulate: (profile: Profile) => void;
+  }) => {
+    const isRunning = bluetoothHook.status?.is_running ?? false;
+    return (
+      <div className="flex space-x-2">
+        {isRunning ? (
+          <button 
+            onClick={() => onStartProfile(profile)}
+            className="flex items-center px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+          >
+            <X size={14} className="mr-1" />
+            Stop
+          </button>
+        ) : (
+          <button 
+            onClick={() => onStartProfile(profile)}
+            className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+          >
+            <Play size={14} className="mr-1" />
+            Kjør
+          </button>
+        )}
+        <button
+          onClick={() => onSimulate(profile)}
+          className="flex items-center px-3 py-1 bg-purple-500 text-white rounded text-sm hover:bg-purple-600"
+        >
+          <BarChart3 size={14} className="mr-1" />
+          Simuler
+        </button>
+      </div>
+    );
+  }, (prevProps, nextProps) => {
+    // Only re-render if profile ID changed
+    return prevProps.profile.id === nextProps.profile.id && 
+           prevProps.onStartProfile === nextProps.onStartProfile && 
+           prevProps.onSimulate === nextProps.onSimulate;
+  });
+  ProfileRunButton.displayName = 'ProfileRunButton';
+
   // Memoize profile cards to prevent re-rendering charts when only bluetooth status changes
   const brewProfileCards = useMemo(() => {
     return profiles.map((profile) => {
