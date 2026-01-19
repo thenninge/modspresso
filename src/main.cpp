@@ -402,6 +402,17 @@ void startProfile(JsonObject profile) {
   Serial.println(logMsg);
   sendLogMessage(logMsg.c_str(), "info");
   
+  // Debug: Log segment data
+  Serial.println("DEBUG startProfile: totalSegments=" + String(totalSegments) + ", startTime=" + String(startTime));
+  for (int i = 0; i < totalSegments && i < 5; i++) {
+    JsonObject seg = profileSegments[i];
+    int st = seg.containsKey("startTime") ? seg["startTime"] : (seg.containsKey("st") ? seg["st"] : 0);
+    int et = seg.containsKey("endTime") ? seg["endTime"] : (seg.containsKey("et") ? seg["et"] : 0);
+    float sp = seg.containsKey("startPressure") ? seg["startPressure"].as<float>() : (seg.containsKey("sp") ? seg["sp"].as<float>() : 0.0f);
+    float ep = seg.containsKey("endPressure") ? seg["endPressure"].as<float>() : (seg.containsKey("ep") ? seg["ep"].as<float>() : 0.0f);
+    Serial.println("  Segment " + String(i) + ": " + String(st) + "s-" + String(et) + "s, " + String(sp, 1) + "→" + String(ep, 1) + " bar");
+  }
+  
   // Send confirmation
   DynamicJsonDocument response(256);
   response["status"] = "profile_started";
@@ -410,13 +421,29 @@ void startProfile(JsonObject profile) {
 }
 
 void stopProfile() {
+  if (!isRunning) {
+    // Already stopped, nothing to do
+    return;
+  }
+  
   isRunning = false;
   setDimLevel(0);
   
-  unsigned long duration = (millis() - startTime) / 1000; // Duration in seconds
+  unsigned long duration = 0;
+  if (startTime > 0) {
+    duration = (millis() - startTime) / 1000; // Duration in seconds
+  }
+  
+  Serial.println("DEBUG stopProfile: startTime=" + String(startTime) + ", millis()=" + String(millis()) + ", duration=" + String(duration) + "s");
+  
   String logMsg = "Brew profile finished (duration: " + String(duration) + "s)";
   Serial.println(logMsg);
   sendLogMessage(logMsg.c_str(), "info");
+  
+  // Reset startTime to prevent reuse
+  startTime = 0;
+  currentSegment = 0;
+  totalSegments = 0;
   
   DynamicJsonDocument response(256);
   response["status"] = "profile_stopped";
@@ -478,12 +505,32 @@ void executeProfile() {
     lastLoggedSegment = currentSegment;
   }
   
+  // Debug: Log current time and segment info every 5 seconds
+  static unsigned long lastDebugTime = 0;
+  if (millis() - lastDebugTime >= 5000) {
+    String debugMsg = "DEBUG: currentTime=" + String(currentTime) + "s, segment=" + String(currentSegment) + 
+                      ", startTime=" + String(segmentStartTime) + "s, endTime=" + String(segmentEndTime) + 
+                      "s, isRunning=" + String(isRunning) + ", totalSegments=" + String(totalSegments);
+    Serial.println(debugMsg);
+    lastDebugTime = millis();
+  }
+  
+  // Check if we're before the segment starts
+  if (currentTime < segmentStartTime) {
+    // Not yet time for this segment, wait
+    // Set dim level to 0 while waiting
+    if (currentSegment == 0) {
+      setDimLevel(0);
+    }
+    return;
+  }
+  
   if (currentTime >= segmentStartTime && currentTime <= segmentEndTime) {
     // Calculate target pressure for current time
     int segmentDuration = segmentEndTime - segmentStartTime;
     if (segmentDuration <= 0) {
       // Safety check: avoid division by zero
-      Serial.println("ERROR: Segment duration is zero or negative");
+      Serial.println("ERROR: Segment duration is zero or negative (start=" + String(segmentStartTime) + ", end=" + String(segmentEndTime) + ")");
       stopProfile();
       return;
     }
@@ -497,12 +544,19 @@ void executeProfile() {
     
     // Safety check: ensure targetPressure is valid
     if (isnan(targetPressure) || isinf(targetPressure)) {
-      Serial.println("ERROR: Invalid target pressure calculated");
+      Serial.println("ERROR: Invalid target pressure calculated (start=" + String(startPressure, 2) + ", end=" + String(endPressure, 2) + ", progress=" + String(progress, 3) + ")");
       targetPressure = 0.0f;
     }
     
     // Convert pressure to dim level and set
     int dimLevel = pressureToDimLevel(targetPressure);
+    
+    // Debug: Log pressure to dim level conversion
+    static float lastTargetPressure = -1.0f;
+    if (abs(targetPressure - lastTargetPressure) > 0.1f) {
+      Serial.println("DEBUG: pressureToDimLevel(" + String(targetPressure, 2) + " bar) = " + String(dimLevel) + "%, isCalibrated=" + String(isCalibrated));
+      lastTargetPressure = targetPressure;
+    }
     
     // Log dim level changes (every second or when level changes significantly)
     static int lastLoggedDimLevel = -1;
@@ -534,6 +588,7 @@ void executeProfile() {
     sendResponse(update);
   } else if (currentTime > segmentEndTime) {
     // Move to next segment
+    Serial.println("Moving to next segment: currentTime=" + String(currentTime) + "s > segmentEndTime=" + String(segmentEndTime) + "s");
     currentSegment++;
     lastLoggedSegment = currentSegment - 1; // Reset so new segment gets logged
   }
@@ -967,18 +1022,27 @@ void startDefaultProfile(int button) {
   profileSegments.clear();
   totalSegments = profile.segmentCount;
   
+  Serial.println("DEBUG startDefaultProfile: Converting profile ID " + String(profileId) + " with " + String(profile.segmentCount) + " segments");
+  
   for (int i = 0; i < profile.segmentCount; i++) {
     JsonObject segment = profileSegments.createNestedObject();
     segment["startTime"] = profile.segments[i].startTime;
     segment["endTime"] = profile.segments[i].endTime;
     segment["startPressure"] = profile.segments[i].startPressure / 10.0;
     segment["endPressure"] = profile.segments[i].endPressure / 10.0;
+    
+    Serial.println("  Segment " + String(i) + ": " + String(profile.segments[i].startTime) + "s-" + 
+                   String(profile.segments[i].endTime) + "s, " + 
+                   String(profile.segments[i].startPressure / 10.0, 1) + "→" + 
+                   String(profile.segments[i].endPressure / 10.0, 1) + " bar");
   }
   
   // Start profile execution
   currentSegment = 0;
   startTime = millis();
   isRunning = true;
+  
+  Serial.println("DEBUG startDefaultProfile: startTime=" + String(startTime) + ", totalSegments=" + String(totalSegments));
   
   // Send confirmation
   DynamicJsonDocument response(256);
