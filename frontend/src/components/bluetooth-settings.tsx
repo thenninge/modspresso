@@ -46,6 +46,11 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
     onConnectionChange?.(isConnected);
   }, [isConnected, onConnectionChange]);
 
+  // Debug: Log when status changes
+  useEffect(() => {
+    console.log('Status changed in BluetoothSettings:', status);
+  }, [status]);
+
   const handleScanDevices = async () => {
     const foundDevices = await scanForDevices();
     setDevices(foundDevices);

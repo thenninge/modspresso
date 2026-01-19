@@ -228,7 +228,17 @@ export const useWebBluetooth = () => {
             const data = JSON.parse(jsonString);
             console.log('Parsed data:', data); // Debug logging
             if (data.type === 'status_update') {
-              setStatus(data);
+              // Extract only the status fields (exclude 'type')
+              const statusData: ESP32Status = {
+                current_pressure: data.current_pressure ?? 0,
+                is_running: data.is_running ?? false,
+                current_segment: data.current_segment ?? 0,
+                total_segments: data.total_segments ?? 0,
+                uptime: data.uptime ?? 0,
+                is_calibrated: data.is_calibrated ?? false
+              };
+              console.log('Setting status:', statusData); // Debug logging
+              setStatus(statusData);
             } else if (data.type === 'serial_log') {
               // Add log entry to serial logs (keep last 500 entries)
               setSerialLogs(prev => {
