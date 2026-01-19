@@ -7,6 +7,7 @@
 #include <WiFi.h>
 #include <HTTPUpdate.h>
 #include <WiFiClientSecure.h>
+#include "rbdimmerESP32.h"
 
 // Pin definitions
 #define ZERO_CROSS_PIN 33   // GPIO33 (D33) for zero-cross detection (RobotDyn Mod-Dimmer-5A-1L)
@@ -80,57 +81,9 @@ bool wifiConfigured = false;
 bool wifiConnected = false;
 
 // Zero-cross dimmer configuration (RobotDyn Mod-Dimmer-5A-1L)
-volatile int dimLevel = 0;  // Current dim level (0-100)
-volatile unsigned long zeroCrossTime = 0;  // Time of last zero-cross detection
-hw_timer_t* dimmerTimer = NULL;  // Hardware timer for phase-angle control
-const int AC_FREQ = 50;  // 50Hz AC frequency
-const unsigned long HALF_WAVE_TIME = 1000000 / AC_FREQ / 2;  // Time for half wave in microseconds (10000us for 50Hz)
-
-// ISR for zero-cross detection
-void IRAM_ATTR zeroCrossISR() {
-  zeroCrossTime = micros();
-  
-  if (dimLevel > 0 && dimLevel < 100) {
-    // Calculate delay based on dim level
-    // At 0%: delay = half wave (10000us), at 100%: delay = 0
-    unsigned long delay = HALF_WAVE_TIME - ((dimLevel * HALF_WAVE_TIME) / 100);
-    
-    // Start hardware timer to trigger TRIAC after delay
-    timerWrite(dimmerTimer, 0);  // Reset timer
-    timerAlarmWrite(dimmerTimer, delay, false);  // Set alarm with delay
-    timerAlarmEnable(dimmerTimer);
-  } else if (dimLevel >= 100) {
-    // 100% - turn on immediately (no phase cutting)
-    // Note: For 100%, we can use a simple digitalWrite pulse
-    // The TRIAC will latch and remain on for the full cycle
-    digitalWrite(DIMMER_PIN, HIGH);
-    // Use timer to turn off after short pulse (100us)
-    timerWrite(dimmerTimer, 0);
-    timerAlarmWrite(dimmerTimer, 100, false);  // 100 microseconds
-    timerAlarmEnable(dimmerTimer);
-  }
-  // If dimLevel == 0, do nothing (remain off)
-}
-
-// ISR for timer - triggers TRIAC gate or turns it off after pulse
-void IRAM_ATTR triggerTRIAC() {
-  static bool pulseOn = false;
-  
-  if (!pulseOn) {
-    // Turn on TRIAC gate
-    digitalWrite(DIMMER_PIN, HIGH);
-    pulseOn = true;
-    
-    // Schedule turn-off after 100us
-    timerWrite(dimmerTimer, 0);
-    timerAlarmWrite(dimmerTimer, 100, false);
-  } else {
-    // Turn off TRIAC gate (pulse complete)
-    digitalWrite(DIMMER_PIN, LOW);
-    pulseOn = false;
-    timerAlarmDisable(dimmerTimer);  // Disable until next zero-cross
-  }
-}
+// Using RBDimmer library for proper zero-cross detection and phase-angle control
+#define PHASE_NUM 0  // Phase number (0 for single phase)
+rbdimmer_channel_t* dimmer_channel = NULL;  // Dimmer channel object
 
 // Function declarations
 void handleCommand(const char* command);
@@ -162,6 +115,10 @@ class MyServerCallbacks: public BLEServerCallbacks {
       deviceConnected = true;
       Serial.println("Device connected");
       digitalWrite(LED_PIN, HIGH);
+      // Send initial status update when device connects
+      delay(100); // Small delay to ensure connection is stable
+      sendStatusUpdate();
+      sendLogMessage("ESP32 connected and ready", "info");
     };
 
     void onDisconnect(BLEServer* pServer) {
@@ -188,30 +145,49 @@ void setup() {
 
   // Initialize pins
   pinMode(LED_PIN, OUTPUT);
-  pinMode(ZERO_CROSS_PIN, INPUT_PULLUP);  // Zero-cross input from dimmer module (pull-up for safety)
-  pinMode(DIMMER_PIN, OUTPUT);  // Gate pin for TRIAC control
   // Button pins with internal pull-up (button connects to GND when pressed)
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);  // GPIO18 - Button 1 (LOW = pressed, HIGH = not pressed)
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);  // GPIO19 - Button 2 (LOW = pressed, HIGH = not pressed)
   digitalWrite(LED_PIN, LOW);
-  digitalWrite(DIMMER_PIN, LOW);  // Start with gate off
 
-  // Initialize zero-cross interrupt for phase-angle dimming
-  attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, RISING);  // RISING edge on zero-cross
+  // Initialize RBDimmer library for RobotDyn Mod-Dimmer-5A-1L
+  Serial.println("Initializing RBDimmer library...");
   
-  // Initialize hardware timer for phase-angle delay
-  dimmerTimer = timerBegin(0, 80, true);  // Timer 0, prescaler 80 (1MHz = 1 microsecond per tick), count up
-  timerAttachInterrupt(dimmerTimer, &triggerTRIAC, true);  // Attach ISR (edge = true for edge-triggered)
-  timerAlarmWrite(dimmerTimer, 10000, false);  // Initial delay (will be updated dynamically)
-  timerAlarmDisable(dimmerTimer);  // Disabled until needed
+  if (rbdimmer_init() != RBDIMMER_OK) {
+    Serial.println("ERROR: Failed to initialize RBDimmer library");
+    sendLogMessage("ERROR: Failed to initialize RBDimmer library", "error");
+  } else {
+    Serial.println("RBDimmer library initialized");
+  }
   
-  dimLevel = 0;  // Start with 0% (off)
+  // Register zero-cross detector
+  if (rbdimmer_register_zero_cross(ZERO_CROSS_PIN, PHASE_NUM, 0) != RBDIMMER_OK) {
+    Serial.println("ERROR: Failed to register zero-cross detector on GPIO" + String(ZERO_CROSS_PIN));
+    sendLogMessage("ERROR: Failed to register zero-cross detector", "error");
+  } else {
+    Serial.println("Zero-cross detector registered on GPIO" + String(ZERO_CROSS_PIN));
+  }
   
-  Serial.println("Zero-cross dimmer initialized:");
-  Serial.println("  Zero-cross pin: GPIO" + String(ZERO_CROSS_PIN));
-  Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
-  Serial.println("  AC frequency: " + String(AC_FREQ) + "Hz");
-  Serial.println("  Half-wave time: " + String(HALF_WAVE_TIME) + " microseconds");
+  // Create dimmer channel configuration
+  rbdimmer_config_t dimmer_config = {
+    .gpio_pin = DIMMER_PIN,
+    .phase = PHASE_NUM,
+    .initial_level = 0,  // Start with 0% (off)
+    .curve_type = RBDIMMER_CURVE_RMS  // RMS curve for smooth dimming (good for resistive loads)
+  };
+  
+  if (rbdimmer_create_channel(&dimmer_config, &dimmer_channel) != RBDIMMER_OK) {
+    Serial.println("ERROR: Failed to create dimmer channel on GPIO" + String(DIMMER_PIN));
+    sendLogMessage("ERROR: Failed to create dimmer channel", "error");
+  } else {
+    Serial.println("Dimmer channel created on GPIO" + String(DIMMER_PIN));
+    Serial.println("Zero-cross dimmer initialized successfully:");
+    Serial.println("  Zero-cross pin: GPIO" + String(ZERO_CROSS_PIN));
+    Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
+    Serial.println("  Phase: " + String(PHASE_NUM));
+    Serial.println("  Curve type: RMS");
+    sendLogMessage("Zero-cross dimmer initialized successfully", "info");
+  }
 
   // Initialize Bluetooth
   BLEDevice::init("EspressoProfiler-ESP32");
@@ -438,15 +414,23 @@ void setDimLevel(int level) {
   // Clamp level between 0 and 100
   level = constrain(level, 0, 100);
   
-  // Set dim level (zero-cross ISR will handle phase-angle control)
-  // dimLevel is volatile to ensure safe access from ISR
-  noInterrupts();  // Disable interrupts briefly to safely update dimLevel
-  dimLevel = level;
-  interrupts();    // Re-enable interrupts
-  
-  String logMsg = "Dim level set to: " + String(level) + "% (zero-cross controlled)";
-  Serial.println(logMsg);
-  sendLogMessage(logMsg.c_str(), "info");
+  // Set dim level using RBDimmer library (handles zero-cross and phase-angle control automatically)
+  if (dimmer_channel != NULL) {
+    rbdimmer_err_t result = rbdimmer_set_level(dimmer_channel, level);
+    if (result == RBDIMMER_OK) {
+      String logMsg = "Dim level set to: " + String(level) + "% (RBDimmer controlled)";
+      Serial.println(logMsg);
+      sendLogMessage(logMsg.c_str(), "info");
+    } else {
+      String errorMsg = "ERROR: Failed to set dim level to " + String(level) + "%";
+      Serial.println(errorMsg);
+      sendLogMessage(errorMsg.c_str(), "error");
+    }
+  } else {
+    String errorMsg = "ERROR: Dimmer channel not initialized!";
+    Serial.println(errorMsg);
+    sendLogMessage(errorMsg.c_str(), "error");
+  }
 }
 
 float getCurrentPressure() {

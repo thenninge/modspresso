@@ -130,35 +130,53 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
       )}
 
       {/* ESP32 Status */}
-      {status && (
+      {isConnected && (
         <div className="bg-white rounded-lg shadow-md p-6">
-          <h3 className="text-lg font-medium text-gray-800 mb-4">ESP32 Status</h3>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Trykk:</span>
-              <span className="font-medium">{status.current_pressure} bar</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Kjører:</span>
-              <span className={`font-medium ${status.is_running ? 'text-green-600' : 'text-gray-600'}`}>
-                {status.is_running ? 'Ja' : 'Nei'}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Segment:</span>
-              <span className="font-medium">{status.current_segment}/{status.total_segments}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Oppetid:</span>
-              <span className="font-medium">{Math.floor(status.uptime / 60)}m {status.uptime % 60}s</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Kalibrert:</span>
-              <span className={`font-medium ${status.is_calibrated ? 'text-green-600' : 'text-red-600'}`}>
-                {status.is_calibrated ? 'Ja' : 'Nei'}
-              </span>
-            </div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium text-gray-800">ESP32 Status</h3>
+            <button
+              onClick={async () => {
+                await getStatus();
+              }}
+              disabled={!isConnected}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Hent status</span>
+            </button>
           </div>
+          {status ? (
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Trykk:</span>
+                <span className="font-medium">{status.current_pressure} bar</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Kjører:</span>
+                <span className={`font-medium ${status.is_running ? 'text-green-600' : 'text-gray-600'}`}>
+                  {status.is_running ? 'Ja' : 'Nei'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Segment:</span>
+                <span className="font-medium">{status.current_segment}/{status.total_segments}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Oppetid:</span>
+                <span className="font-medium">{Math.floor(status.uptime / 60)}m {status.uptime % 60}s</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Kalibrert:</span>
+                <span className={`font-medium ${status.is_calibrated ? 'text-green-600' : 'text-red-600'}`}>
+                  {status.is_calibrated ? 'Ja' : 'Nei'}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500 italic">
+              Ingen status mottatt ennå. Klikk på &quot;Hent status&quot; for å oppdatere.
+            </div>
+          )}
         </div>
       )}
 

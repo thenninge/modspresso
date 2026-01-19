@@ -214,8 +214,10 @@ export const useWebBluetooth = () => {
         if (value) {
           const decoder = new TextDecoder();
           const jsonString = decoder.decode(value);
+          console.log('Received BLE message:', jsonString); // Debug logging
           try {
             const data = JSON.parse(jsonString);
+            console.log('Parsed data:', data); // Debug logging
             if (data.type === 'status_update') {
               setStatus(data);
             } else if (data.type === 'serial_log') {
@@ -228,10 +230,14 @@ export const useWebBluetooth = () => {
                 }];
                 return newLogs.slice(-500); // Keep last 500 entries
               });
+            } else {
+              console.log('Unknown message type:', data.type); // Debug logging
             }
           } catch (err) {
-            console.error('Failed to parse ESP32 message:', err);
+            console.error('Failed to parse ESP32 message:', err, 'Raw:', jsonString);
           }
+        } else {
+          console.log('No value in characteristicvaluechanged event'); // Debug logging
         }
       });
 
