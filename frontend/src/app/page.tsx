@@ -134,34 +134,69 @@ export default function Home() {
     }
     
     try {
-      // Send each profile to ESP32
+      // First, send profiles assigned to buttons 1 and 2 with their button IDs
+      // Profiles assigned to button 1 get ID 1, button 2 gets ID 2
+      if (defaultProfile1) {
+        const profile1 = profiles.find(p => p.id === defaultProfile1);
+        if (profile1) {
+          await bluetoothHook.storeProfile(1, {
+            id: 1,
+            name: profile1.name,
+            segments: profile1.segments
+          });
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      if (defaultProfile2) {
+        const profile2 = profiles.find(p => p.id === defaultProfile2);
+        if (profile2) {
+          await bluetoothHook.storeProfile(2, {
+            id: 2,
+            name: profile2.name,
+            segments: profile2.segments
+          });
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+      
+      // Then send other profiles with auto-incremented IDs (skip 1 and 2 if used)
+      let esp32Id = 0;
       for (let i = 0; i < Math.min(profiles.length, 10); i++) {
         const profile = profiles[i];
-        await bluetoothHook.storeProfile(i, {
-          id: i,
+        
+        // Skip if this profile is assigned to button 1 or 2 (already sent above)
+        if (profile.id === defaultProfile1 || profile.id === defaultProfile2) {
+          continue;
+        }
+        
+        // Skip IDs 1 and 2 if they're taken by button assignments
+        while (esp32Id === 1 || esp32Id === 2 || (esp32Id === 1 && defaultProfile1) || (esp32Id === 2 && defaultProfile2)) {
+          esp32Id++;
+        }
+        
+        if (esp32Id >= 10) break; // Maximum 10 profiles
+        
+        await bluetoothHook.storeProfile(esp32Id, {
+          id: esp32Id,
           name: profile.name,
           segments: profile.segments
         });
         // Small delay between profiles
         await new Promise(resolve => setTimeout(resolve, 100));
+        esp32Id++;
       }
       
-      // Sync default profiles if set
+      // Set default profiles to use IDs 1 and 2
       if (defaultProfile1) {
-        const profileId1 = parseInt(defaultProfile1);
-        if (!isNaN(profileId1)) {
-          await bluetoothHook.setDefaultProfileForButton(1, profileId1);
-        }
+        await bluetoothHook.setDefaultProfileForButton(1, 1);
       }
       
       if (defaultProfile2) {
-        const profileId2 = parseInt(defaultProfile2);
-        if (!isNaN(profileId2)) {
-          await bluetoothHook.setDefaultProfileForButton(2, profileId2);
-        }
+        await bluetoothHook.setDefaultProfileForButton(2, 2);
       }
       
-      alert(`✅ Synkronisert ${profiles.length} profiler til ESP32!\n\nAlle profiler er nå lagret på ESP32 for offline bruk.`);
+      alert(`✅ Synkronisert ${profiles.length} profiler til ESP32!\n\nProfiler tilegnet knapp 1 og 2 har fått ID 1 og 2 på ESP32.`);
     } catch (error) {
       console.error('Error syncing profiles:', error);
       alert('Feil ved synkronisering av profiler. Sjekk Serial Monitor for detaljer.');
@@ -178,24 +213,44 @@ export default function Home() {
       const newProfileId = defaultProfile1 === profileId ? '' : profileId;
       setDefaultProfile1(newProfileId);
       
-      // Sync to ESP32
+      // Sync to ESP32 - profile assigned to button 1 gets ID 1
       if (bluetoothHook.isConnected && newProfileId) {
-        const profileIdNum = parseInt(newProfileId);
-        if (!isNaN(profileIdNum)) {
-          await bluetoothHook.setDefaultProfileForButton(1, profileIdNum);
+        const profile = profiles.find(p => p.id === newProfileId);
+        if (profile) {
+          // Store profile with ID 1 on ESP32
+          await bluetoothHook.storeProfile(1, {
+            id: 1,
+            name: profile.name,
+            segments: profile.segments
+          });
+          // Set button 1 to use profile ID 1
+          await bluetoothHook.setDefaultProfileForButton(1, 1);
         }
+      } else if (bluetoothHook.isConnected && !newProfileId) {
+        // Clear button assignment
+        await bluetoothHook.setDefaultProfileForButton(1, 255); // 255 = no profile
       }
     } else {
       // Toggle: if already set to this profile, clear it
       const newProfileId = defaultProfile2 === profileId ? '' : profileId;
       setDefaultProfile2(newProfileId);
       
-      // Sync to ESP32
+      // Sync to ESP32 - profile assigned to button 2 gets ID 2
       if (bluetoothHook.isConnected && newProfileId) {
-        const profileIdNum = parseInt(newProfileId);
-        if (!isNaN(profileIdNum)) {
-          await bluetoothHook.setDefaultProfileForButton(2, profileIdNum);
+        const profile = profiles.find(p => p.id === newProfileId);
+        if (profile) {
+          // Store profile with ID 2 on ESP32
+          await bluetoothHook.storeProfile(2, {
+            id: 2,
+            name: profile.name,
+            segments: profile.segments
+          });
+          // Set button 2 to use profile ID 2
+          await bluetoothHook.setDefaultProfileForButton(2, 2);
         }
+      } else if (bluetoothHook.isConnected && !newProfileId) {
+        // Clear button assignment
+        await bluetoothHook.setDefaultProfileForButton(2, 255); // 255 = no profile
       }
     }
   };

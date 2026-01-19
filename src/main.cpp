@@ -801,7 +801,8 @@ bool storeProfile(uint8_t id, JsonObject profileData) {
 void setDefaultProfile(int button, uint8_t profileId) {
   String buttonName = (button == 1) ? "SW1" : "SW2";
   
-  if (profileId >= 10) {
+  // Allow profileId 255 (no profile) or 0-9
+  if (profileId != 255 && profileId >= 10) {
     String errorMsg = "Invalid profile ID: " + String(profileId);
     Serial.println(errorMsg);
     sendLogMessage(errorMsg.c_str(), "error");
@@ -810,14 +811,26 @@ void setDefaultProfile(int button, uint8_t profileId) {
   
   if (button == 1) {
     defaultProfile1 = profileId;
-    String logMsg = "Synced: " + buttonName + " (Button 1) -> Profile ID " + String(profileId);
-    Serial.println(logMsg);
-    sendLogMessage(logMsg.c_str(), "info");
+    if (profileId == 255) {
+      String logMsg = "Cleared: " + buttonName + " (Button 1) - no profile assigned";
+      Serial.println(logMsg);
+      sendLogMessage(logMsg.c_str(), "info");
+    } else {
+      String logMsg = "Synced: " + buttonName + " (Button 1) -> Profile ID " + String(profileId);
+      Serial.println(logMsg);
+      sendLogMessage(logMsg.c_str(), "info");
+    }
   } else if (button == 2) {
     defaultProfile2 = profileId;
-    String logMsg = "Synced: " + buttonName + " (Button 2) -> Profile ID " + String(profileId);
-    Serial.println(logMsg);
-    sendLogMessage(logMsg.c_str(), "info");
+    if (profileId == 255) {
+      String logMsg = "Cleared: " + buttonName + " (Button 2) - no profile assigned";
+      Serial.println(logMsg);
+      sendLogMessage(logMsg.c_str(), "info");
+    } else {
+      String logMsg = "Synced: " + buttonName + " (Button 2) -> Profile ID " + String(profileId);
+      Serial.println(logMsg);
+      sendLogMessage(logMsg.c_str(), "info");
+    }
   }
   
   // Send confirmation
