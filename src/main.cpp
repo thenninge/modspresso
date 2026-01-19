@@ -1263,6 +1263,18 @@ void startDefaultProfile(int button) {
   startTime = millis();
   isRunning = true;
   
+  // IMPORTANT: Update button state tracking to match actual button state when profile starts
+  // This prevents false emergency stops right after profile start
+  if (button == 1) {
+    lastButton1State = digitalRead(BUTTON_1_PIN);  // Read actual state
+    lastButton1Time = millis();
+    Serial.println("DEBUG: Updated lastButton1State to " + String(lastButton1State == LOW ? "LOW (pressed)" : "HIGH (not pressed)") + " at profile start");
+  } else if (button == 2) {
+    lastButton2State = digitalRead(BUTTON_2_PIN);  // Read actual state
+    lastButton2Time = millis();
+    Serial.println("DEBUG: Updated lastButton2State to " + String(lastButton2State == LOW ? "LOW (pressed)" : "HIGH (not pressed)") + " at profile start");
+  }
+  
   Serial.println("DEBUG startDefaultProfile: startTime=" + String(startTime) + ", totalSegments=" + String(totalSegments) + ", isRunning=" + String(isRunning));
   
   // Send confirmation
