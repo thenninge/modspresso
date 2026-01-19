@@ -407,6 +407,14 @@ void executeProfile() {
     int dimLevel = pressureToDimLevel(targetPressure);
     setDimLevel(dimLevel);
     
+    // Log dim level change for profile execution
+    static int lastLoggedDimLevel = -1;
+    if (dimLevel != lastLoggedDimLevel) {
+      String msg = "Profile execution: Dim level set to " + String(dimLevel) + "% (target pressure: " + String(targetPressure, 1) + " bar)";
+      sendLogMessage(msg.c_str(), "debug");
+      lastLoggedDimLevel = dimLevel;
+    }
+    
     // Send pressure update
     DynamicJsonDocument update(256);
     update["type"] = "pressure_update";
@@ -620,18 +628,29 @@ void checkHardwareButtons() {
   if (button1State != lastButton1State) {
     if (currentTime - lastButton1Time > DEBOUNCE_DELAY) {
       if (button1State == LOW) {
-        Serial.println("[BUTTON] Button 1 pressed (GPIO18)");
+        String msg = "[BUTTON] SW1 (Button 1) pressed (GPIO18)";
+        Serial.println(msg);
+        sendLogMessage(msg.c_str(), "info");
+        
         if (!isRunning && defaultProfile1 != 255) {
           // Button 1 pressed - start default profile 1
-          Serial.println("Starting default profile 1 (ID: " + String(defaultProfile1) + ")");
+          msg = "Starting default profile 1 (ID: " + String(defaultProfile1) + ")";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "info");
           startDefaultProfile(1);
         } else if (defaultProfile1 == 255) {
-          Serial.println("No default profile set for button 1 (set via BLE)");
+          msg = "SW1 (Button 1): No default profile set (set via BLE)";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "warn");
         } else {
-          Serial.println("Button ignored - profile already running");
+          msg = "SW1 (Button 1): Ignored - profile already running";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "warn");
         }
       } else {
-        Serial.println("[BUTTON] Button 1 released (GPIO18)");
+        String msg = "[BUTTON] SW1 (Button 1) released (GPIO18)";
+        Serial.println(msg);
+        sendLogMessage(msg.c_str(), "debug");
       }
       lastButton1Time = currentTime;
     }
@@ -642,18 +661,29 @@ void checkHardwareButtons() {
   if (button2State != lastButton2State) {
     if (currentTime - lastButton2Time > DEBOUNCE_DELAY) {
       if (button2State == LOW) {
-        Serial.println("[BUTTON] Button 2 pressed (GPIO19)");
+        String msg = "[BUTTON] SW2 (Button 2) pressed (GPIO19)";
+        Serial.println(msg);
+        sendLogMessage(msg.c_str(), "info");
+        
         if (!isRunning && defaultProfile2 != 255) {
           // Button 2 pressed - start default profile 2
-          Serial.println("Starting default profile 2 (ID: " + String(defaultProfile2) + ")");
+          msg = "Starting default profile 2 (ID: " + String(defaultProfile2) + ")";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "info");
           startDefaultProfile(2);
         } else if (defaultProfile2 == 255) {
-          Serial.println("No default profile set for button 2 (set via BLE)");
+          msg = "SW2 (Button 2): No default profile set (set via BLE)";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "warn");
         } else {
-          Serial.println("Button ignored - profile already running");
+          msg = "SW2 (Button 2): Ignored - profile already running";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "warn");
         }
       } else {
-        Serial.println("[BUTTON] Button 2 released (GPIO19)");
+        String msg = "[BUTTON] SW2 (Button 2) released (GPIO19)";
+        Serial.println(msg);
+        sendLogMessage(msg.c_str(), "debug");
       }
       lastButton2Time = currentTime;
     }
@@ -736,26 +766,35 @@ void setDefaultProfile(int button, uint8_t profileId) {
 
 void startDefaultProfile(int button) {
   uint8_t profileId = (button == 1) ? defaultProfile1 : defaultProfile2;
+  String buttonName = (button == 1) ? "SW1" : "SW2";
   
   if (profileId == 255) {
-    Serial.println("No default profile set for button " + String(button));
+    String msg = "No default profile set for " + buttonName;
+    Serial.println(msg);
+    sendLogMessage(msg.c_str(), "warn");
     return;
   }
   
   if (profileId >= profileCount) {
-    Serial.println("Invalid profile ID: " + String(profileId));
+    String msg = "Invalid profile ID: " + String(profileId) + " for " + buttonName;
+    Serial.println(msg);
+    sendLogMessage(msg.c_str(), "error");
     return;
   }
   
   // Validate checksum
   CompactProfile& profile = storedProfiles[profileId];
   if (calculateChecksum(profile) != profile.checksum) {
-    Serial.println("Profile checksum validation failed for ID: " + String(profileId));
+    String msg = "Profile checksum validation failed for ID: " + String(profileId) + " (triggered by " + buttonName + ")";
+    Serial.println(msg);
+    sendLogMessage(msg.c_str(), "error");
     return;
   }
   
   // Start the stored profile
-  Serial.println("Starting stored profile: " + String(profile.name));
+  String msg = buttonName + " triggered: Starting profile \"" + String(profile.name) + "\" (ID: " + String(profileId) + ")";
+  Serial.println(msg);
+  sendLogMessage(msg.c_str(), "info");
   
   // Convert compact format back to execution format
   profileSegments.clear();
