@@ -31,6 +31,7 @@ bool oldDeviceConnected = false;
 bool isRunning = false;
 unsigned long startTime = 0;
 int currentSegment = 0;
+DynamicJsonDocument* profileDoc = NULL; // Document to hold profile segments
 JsonArray profileSegments;
 int totalSegments = 0;
 
@@ -391,8 +392,47 @@ void startProfile(JsonObject profile) {
     stopProfile();
   }
   
-  profileSegments = profile["segments"];
-  totalSegments = profileSegments.size();
+  // Clean up old document if it exists
+  if (profileDoc != NULL) {
+    delete profileDoc;
+    profileDoc = NULL;
+  }
+  
+  // Create new document to hold profile segments
+  profileDoc = new DynamicJsonDocument(4096);
+  profileSegments = profileDoc->createNestedArray("segments");
+  
+  // Copy segments from incoming profile to our document
+  JsonArray sourceSegments = profile["segments"];
+  totalSegments = sourceSegments.size();
+  
+  for (int i = 0; i < totalSegments; i++) {
+    JsonObject sourceSeg = sourceSegments[i];
+    JsonObject destSeg = profileSegments.createNestedObject();
+    
+    // Copy all fields (support both full and shortened names)
+    if (sourceSeg.containsKey("startTime")) {
+      destSeg["startTime"] = sourceSeg["startTime"];
+    } else if (sourceSeg.containsKey("st")) {
+      destSeg["startTime"] = sourceSeg["st"];
+    }
+    if (sourceSeg.containsKey("endTime")) {
+      destSeg["endTime"] = sourceSeg["endTime"];
+    } else if (sourceSeg.containsKey("et")) {
+      destSeg["endTime"] = sourceSeg["et"];
+    }
+    if (sourceSeg.containsKey("startPressure")) {
+      destSeg["startPressure"] = sourceSeg["startPressure"];
+    } else if (sourceSeg.containsKey("sp")) {
+      destSeg["startPressure"] = sourceSeg["sp"];
+    }
+    if (sourceSeg.containsKey("endPressure")) {
+      destSeg["endPressure"] = sourceSeg["endPressure"];
+    } else if (sourceSeg.containsKey("ep")) {
+      destSeg["endPressure"] = sourceSeg["ep"];
+    }
+  }
+  
   currentSegment = 0;
   startTime = millis();
   isRunning = true;
@@ -439,6 +479,12 @@ void stopProfile() {
   String logMsg = "Brew profile finished (duration: " + String(duration) + "s)";
   Serial.println(logMsg);
   sendLogMessage(logMsg.c_str(), "info");
+  
+  // Clean up profile document
+  if (profileDoc != NULL) {
+    delete profileDoc;
+    profileDoc = NULL;
+  }
   
   // Reset startTime to prevent reuse
   startTime = 0;
@@ -1018,8 +1064,15 @@ void startDefaultProfile(int button) {
   Serial.println(msg);
   sendLogMessage(msg.c_str(), "info");
   
-  // Convert compact format back to execution format
-  profileSegments.clear();
+  // Clean up old document if it exists
+  if (profileDoc != NULL) {
+    delete profileDoc;
+    profileDoc = NULL;
+  }
+  
+  // Create new document to hold profile segments
+  profileDoc = new DynamicJsonDocument(4096);
+  profileSegments = profileDoc->createNestedArray("segments");
   totalSegments = profile.segmentCount;
   
   Serial.println("DEBUG startDefaultProfile: Converting profile ID " + String(profileId) + " with " + String(profile.segmentCount) + " segments");
@@ -1037,12 +1090,15 @@ void startDefaultProfile(int button) {
                    String(profile.segments[i].endPressure / 10.0, 1) + " bar");
   }
   
+  // Verify segments were created
+  Serial.println("DEBUG startDefaultProfile: profileSegments.size()=" + String(profileSegments.size()) + ", totalSegments=" + String(totalSegments));
+  
   // Start profile execution
   currentSegment = 0;
   startTime = millis();
   isRunning = true;
   
-  Serial.println("DEBUG startDefaultProfile: startTime=" + String(startTime) + ", totalSegments=" + String(totalSegments));
+  Serial.println("DEBUG startDefaultProfile: startTime=" + String(startTime) + ", totalSegments=" + String(totalSegments) + ", isRunning=" + String(isRunning));
   
   // Send confirmation
   DynamicJsonDocument response(256);
