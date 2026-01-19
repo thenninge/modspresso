@@ -67,6 +67,10 @@ unsigned long lastButton1Time = 0;
 unsigned long lastButton2Time = 0;
 const unsigned long DEBOUNCE_DELAY = 50; // 50ms debounce
 
+// Emergency stop initialization flags (reset when profile stops)
+bool button1StateInitialized = false;
+bool button2StateInitialized = false;
+
 // Calibration data
 int dimLevelToPressure[11] = {0}; // 0%, 10%, 20%, ..., 100%
 bool isCalibrated = false;
@@ -156,6 +160,19 @@ void setup() {
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);  // GPIO18 - Button 1 (LOW = pressed, HIGH = not pressed)
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);  // GPIO19 - Button 2 (LOW = pressed, HIGH = not pressed)
   digitalWrite(LED_PIN, LOW);
+  
+  // Initialize button states to actual current state (read after pull-up is configured)
+  // This prevents false emergency stops after power cycle
+  delay(10); // Small delay to let pull-ups stabilize
+  lastButton1State = digitalRead(BUTTON_1_PIN);
+  lastButton2State = digitalRead(BUTTON_2_PIN);
+  lastButton1Time = millis();
+  lastButton2Time = millis();
+  button1StateInitialized = false;
+  button2StateInitialized = false;
+  Serial.println("Button states initialized at startup:");
+  Serial.println("  Button1: " + String(lastButton1State == LOW ? "LOW (pressed)" : "HIGH (not pressed)"));
+  Serial.println("  Button2: " + String(lastButton2State == LOW ? "LOW (pressed)" : "HIGH (not pressed)"));
 
   // Initialize dimmer - either simple PWM test mode or RBDimmer library
   if (useSimplePWMTest) {
@@ -520,13 +537,29 @@ void startProfile(JsonObject profile) {
   // IMPORTANT: Update button state tracking to match actual button state when profile starts
   // This prevents false emergency stops right after profile start
   // Note: startProfile() is called from BLE, so we don't know which button triggered it
-  // But we can still initialize states to prevent false positives
+  // Initialize states based on actual button state - only enable emergency stop if button is pressed
   lastButton1State = digitalRead(BUTTON_1_PIN);  // Read actual state
   lastButton2State = digitalRead(BUTTON_2_PIN);  // Read actual state
   lastButton1Time = millis();
   lastButton2Time = millis();
-  Serial.println("DEBUG: Updated button states at profile start - Button1: " + String(lastButton1State == LOW ? "LOW (pressed)" : "HIGH (not pressed)") + 
-                 ", Button2: " + String(lastButton2State == LOW ? "LOW (pressed)" : "HIGH (not pressed)"));
+  
+  // Initialize flags based on actual button states
+  // Only enable emergency stop check if button is actually pressed (LOW)
+  if (lastButton1State == LOW) {
+    button1StateInitialized = true;  // Button is pressed - ready for emergency stop check
+    Serial.println("DEBUG: Button1 initialized as LOW (pressed) for BLE-started profile");
+  } else {
+    button1StateInitialized = false;  // Button not pressed - don't check for emergency stop
+    Serial.println("DEBUG: Button1 initialized as HIGH (not pressed) - emergency stop disabled");
+  }
+  
+  if (lastButton2State == LOW) {
+    button2StateInitialized = true;  // Button is pressed - ready for emergency stop check
+    Serial.println("DEBUG: Button2 initialized as LOW (pressed) for BLE-started profile");
+  } else {
+    button2StateInitialized = false;  // Button not pressed - don't check for emergency stop
+    Serial.println("DEBUG: Button2 initialized as HIGH (not pressed) - emergency stop disabled");
+  }
   
   String profileName = profile["name"] | "Unnamed";
   String logMsg = "Brew profile started: \"" + profileName + "\" (" + String(totalSegments) + " segments)";
@@ -570,6 +603,12 @@ void stopProfile() {
   String logMsg = "Brew profile finished (duration: " + String(duration) + "s)";
   Serial.println(logMsg);
   sendLogMessage(logMsg.c_str(), "info");
+  
+  // IMPORTANT: Reset emergency stop initialization flags
+  // This prevents false emergency stops when starting a new profile
+  button1StateInitialized = false;
+  button2StateInitialized = false;
+  Serial.println("DEBUG: Reset button state initialization flags");
   
   // Clean up profile document
   if (profileDoc != NULL) {
@@ -742,7 +781,7 @@ void setDimLevel(int level) {
   if (useSimplePWMTest) {
     // SIMPLE PWM TEST MODE: Direct PWM output for testing dimmer LED
     // Map 0-100% to 0-255 PWM value
-    int pwmValue = map(level, 0, 100, 0, 255);
+  int pwmValue = map(level, 0, 100, 0, 255);
     ledcWrite(0, pwmValue);  // Write PWM to channel 0 (GPIO25)
     
     String logMsg = "Dim level set to: " + String(level) + "% (Simple PWM test mode, PWM value: " + String(pwmValue) + "/255)";
@@ -1000,53 +1039,41 @@ void checkHardwareButtons() {
     // Check if button state is HIGH while running (button not pressed during operation)
     // Only check for HIGH if we've had at least one loop cycle with the button in the correct state
     // This prevents false emergency stops right after profile start
-    static bool button1StateInitialized = false;
-    static bool button2StateInitialized = false;
+    // NOTE: button1StateInitialized and button2StateInitialized are now global variables
+    // that are reset in stopProfile() to prevent issues when starting new profiles
     
-    if (button1State == HIGH && isRunning) {
+    // Only check for HIGH (not pressed) if button was confirmed LOW (pressed) when profile started
+    // This prevents false emergency stops when button is already HIGH at profile start
+    if (button1State == HIGH && isRunning && button1StateInitialized) {
       // Button 1 is not pressed while profile is running - stop it
-      // BUT: Only if we've confirmed the button was LOW when profile started
-      if (button1StateInitialized) {
-        // Only log once per state change to avoid spam
-        static bool lastButton1EmergencyState = false;
-        if (!lastButton1EmergencyState) {
-          String msg = "[EMERGENCY STOP] SW1 (Button 1) not pressed - stopping brew profile!";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "error");
-          stopProfile();
-          lastButton1EmergencyState = true;
-        }
-        lastButton1State = button1State;
-        return;
-      }
+      String msg = "[EMERGENCY STOP] SW1 (Button 1) not pressed - stopping brew profile!";
+      Serial.println(msg);
+      sendLogMessage(msg.c_str(), "error");
+      stopProfile();
+      lastButton1State = button1State;
+      return;
     } else if (button1State == LOW && isRunning) {
-      // Button is pressed - mark as initialized and reset emergency flag
-      button1StateInitialized = true;
-      static bool lastButton1EmergencyState = false;
-      lastButton1EmergencyState = false; // Reset when button is pressed again
+      // Button is pressed - mark as initialized (only once per profile)
+      if (!button1StateInitialized) {
+        button1StateInitialized = true;
+        Serial.println("DEBUG: Button1 state initialized (LOW/pressed) for this profile");
+      }
     }
     
-    if (button2State == HIGH && isRunning) {
+    if (button2State == HIGH && isRunning && button2StateInitialized) {
       // Button 2 is not pressed while profile is running - stop it
-      // BUT: Only if we've confirmed the button was LOW when profile started
-      if (button2StateInitialized) {
-        // Only log once per state change to avoid spam
-        static bool lastButton2EmergencyState = false;
-        if (!lastButton2EmergencyState) {
-          String msg = "[EMERGENCY STOP] SW2 (Button 2) not pressed - stopping brew profile!";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "error");
-          stopProfile();
-          lastButton2EmergencyState = true;
-        }
-        lastButton2State = button2State;
-        return;
-      }
+      String msg = "[EMERGENCY STOP] SW2 (Button 2) not pressed - stopping brew profile!";
+      Serial.println(msg);
+      sendLogMessage(msg.c_str(), "error");
+      stopProfile();
+      lastButton2State = button2State;
+      return;
     } else if (button2State == LOW && isRunning) {
-      // Button is pressed - mark as initialized and reset emergency flag
-      button2StateInitialized = true;
-      static bool lastButton2EmergencyState = false;
-      lastButton2EmergencyState = false; // Reset when button is pressed again
+      // Button is pressed - mark as initialized (only once per profile)
+      if (!button2StateInitialized) {
+        button2StateInitialized = true;
+        Serial.println("DEBUG: Button2 state initialized (LOW/pressed) for this profile");
+      }
     }
   }
   
@@ -1059,11 +1086,11 @@ void checkHardwareButtons() {
         sendLogMessage(msg.c_str(), "info");
         
         if (!isRunning && defaultProfile1 != 255) {
-          // Button 1 pressed - start default profile 1
+        // Button 1 pressed - start default profile 1
           msg = "Starting default profile 1 (ID: " + String(defaultProfile1) + ")";
           Serial.println(msg);
           sendLogMessage(msg.c_str(), "info");
-          startDefaultProfile(1);
+        startDefaultProfile(1);
         } else if (defaultProfile1 == 255) {
           msg = "SW1 (Button 1): No default profile set (set via BLE)";
           Serial.println(msg);
@@ -1092,11 +1119,11 @@ void checkHardwareButtons() {
         sendLogMessage(msg.c_str(), "info");
         
         if (!isRunning && defaultProfile2 != 255) {
-          // Button 2 pressed - start default profile 2
+        // Button 2 pressed - start default profile 2
           msg = "Starting default profile 2 (ID: " + String(defaultProfile2) + ")";
           Serial.println(msg);
           sendLogMessage(msg.c_str(), "info");
-          startDefaultProfile(2);
+        startDefaultProfile(2);
         } else if (defaultProfile2 == 255) {
           msg = "SW2 (Button 2): No default profile set (set via BLE)";
           Serial.println(msg);
@@ -1297,11 +1324,25 @@ void startDefaultProfile(int button) {
   if (button == 1) {
     lastButton1State = digitalRead(BUTTON_1_PIN);  // Read actual state
     lastButton1Time = millis();
-    Serial.println("DEBUG: Updated lastButton1State to " + String(lastButton1State == LOW ? "LOW (pressed)" : "HIGH (not pressed)") + " at profile start");
+    // Initialize flag based on actual button state
+    if (lastButton1State == LOW) {
+      button1StateInitialized = true;  // Button is pressed - ready for emergency stop check
+      Serial.println("DEBUG: Button1 initialized as LOW (pressed) for this profile");
+    } else {
+      button1StateInitialized = false;  // Button not pressed - don't check for emergency stop
+      Serial.println("DEBUG: Button1 initialized as HIGH (not pressed) - emergency stop disabled");
+    }
   } else if (button == 2) {
     lastButton2State = digitalRead(BUTTON_2_PIN);  // Read actual state
     lastButton2Time = millis();
-    Serial.println("DEBUG: Updated lastButton2State to " + String(lastButton2State == LOW ? "LOW (pressed)" : "HIGH (not pressed)") + " at profile start");
+    // Initialize flag based on actual button state
+    if (lastButton2State == LOW) {
+      button2StateInitialized = true;  // Button is pressed - ready for emergency stop check
+      Serial.println("DEBUG: Button2 initialized as LOW (pressed) for this profile");
+    } else {
+      button2StateInitialized = false;  // Button not pressed - don't check for emergency stop
+      Serial.println("DEBUG: Button2 initialized as HIGH (not pressed) - emergency stop disabled");
+    }
   }
   
   Serial.println("DEBUG startDefaultProfile: startTime=" + String(startTime) + ", totalSegments=" + String(totalSegments) + ", isRunning=" + String(isRunning));
