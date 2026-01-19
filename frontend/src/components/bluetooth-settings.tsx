@@ -173,30 +173,61 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
             </button>
           </div>
           {status ? (
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Trykk:</span>
-                <span className="font-medium">{status.current_pressure} bar</span>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Trykk:</span>
+                  <span className="font-medium">{status.current_pressure} bar</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Kjører:</span>
+                  <span className={`font-medium ${status.is_running ? 'text-green-600' : 'text-gray-600'}`}>
+                    {status.is_running ? 'Ja' : 'Nei'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Segment:</span>
+                  <span className="font-medium">{status.current_segment}/{status.total_segments}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Oppetid:</span>
+                  <span className="font-medium">{Math.floor(status.uptime / 60)}m {status.uptime % 60}s</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Kalibrert:</span>
+                  <span className={`font-medium ${status.is_calibrated ? 'text-green-600' : 'text-red-600'}`}>
+                    {status.is_calibrated ? 'Ja' : 'Nei'}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Kjører:</span>
-                <span className={`font-medium ${status.is_running ? 'text-green-600' : 'text-gray-600'}`}>
-                  {status.is_running ? 'Ja' : 'Nei'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Segment:</span>
-                <span className="font-medium">{status.current_segment}/{status.total_segments}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Oppetid:</span>
-                <span className="font-medium">{Math.floor(status.uptime / 60)}m {status.uptime % 60}s</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Kalibrert:</span>
-                <span className={`font-medium ${status.is_calibrated ? 'text-green-600' : 'text-red-600'}`}>
-                  {status.is_calibrated ? 'Ja' : 'Nei'}
-                </span>
+              
+              {/* Profile Information */}
+              <div className="border-t pt-4 mt-4">
+                <h4 className="text-md font-semibold text-gray-700 mb-3">Profiler</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Profil 1 (SW1):</span>
+                    <span className="font-medium text-gray-800">
+                      {status.default_profile1 !== undefined && status.default_profile1 !== 255 && status.default_profile1_name
+                        ? `${status.default_profile1_name} (ID: ${status.default_profile1})`
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-600">Profil 2 (SW2):</span>
+                    <span className="font-medium text-gray-800">
+                      {status.default_profile2 !== undefined && status.default_profile2 !== 255 && status.default_profile2_name
+                        ? `${status.default_profile2_name} (ID: ${status.default_profile2})`
+                        : '-'}
+                    </span>
+                  </div>
+                  {status.profile_count !== undefined && (
+                    <div className="flex justify-between items-center text-xs text-gray-500 mt-2 pt-2 border-t">
+                      <span>Lagrede profiler:</span>
+                      <span>{status.profile_count}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ) : (

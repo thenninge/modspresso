@@ -98,6 +98,11 @@ interface ESP32Status {
   total_segments: number;
   uptime: number;
   is_calibrated: boolean;
+  profile_count?: number;
+  default_profile1?: number;
+  default_profile2?: number;
+  default_profile1_name?: string;
+  default_profile2_name?: string;
 }
 
 interface DeviceInfo {
@@ -388,6 +393,22 @@ export const useWebBluetooth = () => {
     }
   }, []);
 
+  const storeProfile = useCallback(async (id: number, profile: Record<string, unknown>) => {
+    return await sendCommand({
+      command: 'store_profile',
+      id,
+      profile
+    });
+  }, [sendCommand]);
+
+  const setDefaultProfileForButton = useCallback(async (button: number, profileId: number) => {
+    return await sendCommand({
+      command: 'set_default_profile',
+      button,
+      profileId
+    });
+  }, [sendCommand]);
+
   return {
     // State
     isSupported,
@@ -411,6 +432,8 @@ export const useWebBluetooth = () => {
     setDimLevel,
     startCalibration,
     setCalibrationData,
-    getStatus
+    getStatus,
+    storeProfile,
+    setDefaultProfileForButton
   };
 };

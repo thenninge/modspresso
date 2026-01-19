@@ -614,7 +614,7 @@ void sendProfileStatus() {
 }
 
 void sendStatusUpdate() {
-  DynamicJsonDocument status(512);
+  DynamicJsonDocument status(1024);
   status["type"] = "status_update";
   status["current_pressure"] = getCurrentPressure();
   status["is_running"] = isRunning;
@@ -622,6 +622,24 @@ void sendStatusUpdate() {
   status["total_segments"] = totalSegments;
   status["uptime"] = millis() / 1000;
   status["is_calibrated"] = isCalibrated;
+  
+  // Add profile information
+  status["profile_count"] = profileCount;
+  status["default_profile1"] = defaultProfile1;
+  status["default_profile2"] = defaultProfile2;
+  
+  // Add default profile names if set
+  if (defaultProfile1 != 255 && defaultProfile1 < profileCount) {
+    status["default_profile1_name"] = storedProfiles[defaultProfile1].name;
+  } else {
+    status["default_profile1_name"] = "";
+  }
+  
+  if (defaultProfile2 != 255 && defaultProfile2 < profileCount) {
+    status["default_profile2_name"] = storedProfiles[defaultProfile2].name;
+  } else {
+    status["default_profile2_name"] = "";
+  }
   
   sendResponse(status);
 }
@@ -747,7 +765,10 @@ bool storeProfile(uint8_t id, JsonObject profileData) {
     profileCount = id + 1;
   }
   
-  Serial.println("Profile " + String(id) + " stored: " + String(profile.name));
+  String logMsg = "Profile synced: ID " + String(id) + " - \"" + String(profile.name) + "\" (" + String(profile.segmentCount) + " segments, " + String(profile.totalDuration) + "s)";
+  Serial.println(logMsg);
+  sendLogMessage(logMsg.c_str(), "info");
+  
   return true;
 }
 

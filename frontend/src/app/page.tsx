@@ -122,30 +122,81 @@ export default function Home() {
     alert(`Starter profil: ${profile.name}`);
   };
 
-  const handleSyncProfiles = () => {
-    // TODO: Send all profiles to ESP32 via WebSocket
-    console.log('Syncing profiles to ESP32:', profiles);
+  const handleSyncProfiles = async () => {
+    if (!bluetoothHook.isConnected) {
+      alert('Ikke tilkoblet til ESP32! Koble til via Innstillinger først.');
+      return;
+    }
     
-    // For now, show a simple alert
     if (profiles.length === 0) {
       alert('Ingen profiler å synkronisere');
       return;
     }
     
-    alert(`Synkroniserer ${profiles.length} profiler til ESP32\n\nDette vil sende alle profiler til ESP32 for lagring og offline bruk.`);
+    try {
+      // Send each profile to ESP32
+      for (let i = 0; i < Math.min(profiles.length, 10); i++) {
+        const profile = profiles[i];
+        await bluetoothHook.storeProfile(i, {
+          id: i,
+          name: profile.name,
+          segments: profile.segments
+        });
+        // Small delay between profiles
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Sync default profiles if set
+      if (defaultProfile1) {
+        const profileId1 = parseInt(defaultProfile1);
+        if (!isNaN(profileId1)) {
+          await bluetoothHook.setDefaultProfileForButton(1, profileId1);
+        }
+      }
+      
+      if (defaultProfile2) {
+        const profileId2 = parseInt(defaultProfile2);
+        if (!isNaN(profileId2)) {
+          await bluetoothHook.setDefaultProfileForButton(2, profileId2);
+        }
+      }
+      
+      alert(`✅ Synkronisert ${profiles.length} profiler til ESP32!\n\nAlle profiler er nå lagret på ESP32 for offline bruk.`);
+    } catch (error) {
+      console.error('Error syncing profiles:', error);
+      alert('Feil ved synkronisering av profiler. Sjekk Serial Monitor for detaljer.');
+    }
   };
 
   const handleSimulateProfile = (profile: Profile) => {
     setSimulatingProfile(profile);
   };
 
-  const handleSetDefaultProfile = (profileId: string, button: 1 | 2) => {
+  const handleSetDefaultProfile = async (profileId: string, button: 1 | 2) => {
     if (button === 1) {
       // Toggle: if already set to this profile, clear it
-      setDefaultProfile1(defaultProfile1 === profileId ? '' : profileId);
+      const newProfileId = defaultProfile1 === profileId ? '' : profileId;
+      setDefaultProfile1(newProfileId);
+      
+      // Sync to ESP32
+      if (bluetoothHook.isConnected && newProfileId) {
+        const profileIdNum = parseInt(newProfileId);
+        if (!isNaN(profileIdNum)) {
+          await bluetoothHook.setDefaultProfileForButton(1, profileIdNum);
+        }
+      }
     } else {
       // Toggle: if already set to this profile, clear it
-      setDefaultProfile2(defaultProfile2 === profileId ? '' : profileId);
+      const newProfileId = defaultProfile2 === profileId ? '' : profileId;
+      setDefaultProfile2(newProfileId);
+      
+      // Sync to ESP32
+      if (bluetoothHook.isConnected && newProfileId) {
+        const profileIdNum = parseInt(newProfileId);
+        if (!isNaN(profileIdNum)) {
+          await bluetoothHook.setDefaultProfileForButton(2, profileIdNum);
+        }
+      }
     }
   };
 
