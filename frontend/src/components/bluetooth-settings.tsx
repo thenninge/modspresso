@@ -384,8 +384,11 @@ export const BluetoothSettings: React.FC<BluetoothSettingsProps> = ({
                     debug: 'text-gray-400'
                   }[log.level] || 'text-green-400';
                   
+                  // Use timestamp + index as key for better React reconciliation
+                  const uniqueKey = `${log.timestamp}-${index}-${log.message.substring(0, 10)}`;
+                  
                   return (
-                    <div key={index} className="flex items-start space-x-2">
+                    <div key={uniqueKey} className="flex items-start space-x-2">
                       <span className="text-gray-500 text-xs">{timeStr}</span>
                       <span className={`${levelColor} capitalize text-xs`}>[{log.level}]</span>
                       <span className="text-green-400 flex-1">{log.message}</span>
