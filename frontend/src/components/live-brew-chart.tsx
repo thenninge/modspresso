@@ -190,7 +190,7 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
           />
         </LineChart>
       </ResponsiveContainer>
-      {liveData.length > 0 && (
+      {liveData && liveData.length > 0 && liveData[liveData.length - 1]?.timestamp && (
         <div className="mt-2 text-xs text-gray-500 text-center">
           {liveData.length} datapunkter • Siste oppdatering: {new Date(liveData[liveData.length - 1].timestamp).toLocaleTimeString()}
         </div>
