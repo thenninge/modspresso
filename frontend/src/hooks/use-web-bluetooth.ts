@@ -439,6 +439,13 @@ export const useWebBluetooth = () => {
     });
   }, [sendCommand]);
 
+  const startProfileById = useCallback(async (profileId: number) => {
+    return await sendCommand({
+      command: 'start_profile_by_id',
+      profile_id: profileId
+    });
+  }, [sendCommand]);
+
   const stopProfile = useCallback(async () => {
     return await sendCommand({
       command: 'stop_profile'
@@ -552,6 +559,7 @@ export const useWebBluetooth = () => {
     
     // ESP32 specific commands
     startProfile,
+    startProfileById,
     stopProfile,
     setDimLevel,
     startCalibration,

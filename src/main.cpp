@@ -125,6 +125,7 @@ uint8_t calculateChecksum(CompactProfile& profile);
 bool storeProfile(uint8_t id, JsonObject profileData);
 void setDefaultProfile(int button, uint8_t profileId);
 void startDefaultProfile(int button);
+void startProfileById(uint8_t profileId);
 void saveCalibrationData();
 void loadCalibrationData();
 void saveProfiles();
@@ -523,6 +524,17 @@ void handleCommand(const char* command) {
   
   if (cmd == "start_profile") {
     startProfile(doc["profile"]);
+  } else if (cmd == "start_profile_by_id") {
+    uint8_t profileId = doc["profile_id"] | doc["id"] | 255;
+    if (profileId != 255) {
+      startProfileById(profileId);
+    } else {
+      Serial.println("ERROR: profile_id not provided");
+      DynamicJsonDocument response(256);
+      response["status"] = "error";
+      response["error"] = "profile_id not provided";
+      sendResponse(response);
+    }
   } else if (cmd == "stop_profile") {
     stopProfile();
   } else if (cmd == "set_dim_level") {

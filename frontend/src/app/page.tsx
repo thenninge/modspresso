@@ -125,17 +125,44 @@ export default function Home() {
       return;
     }
     
+    // If profile is already running, stop it instead
+    if (esp32Status?.is_running) {
+      try {
+        await bluetoothHook.stopProfile();
+        return;
+      } catch (error) {
+        console.error('Error stopping profile:', error);
+        alert('Feil ved stopp av profil. Sjekk Serial Monitor for detaljer.');
+        return;
+      }
+    }
+    
     try {
-      console.log('Starting profile:', profile.name);
-      await bluetoothHook.startProfile({
-        name: profile.name,
-        segments: profile.segments
-      });
+      // Check if profile is assigned to a button - if so, we know the ESP32 ID
+      let esp32ProfileId: number | null = null;
+      if (profile.id === defaultProfile1) {
+        esp32ProfileId = 1; // Button 1 profiles get ID 1 on ESP32
+      } else if (profile.id === defaultProfile2) {
+        esp32ProfileId = 2; // Button 2 profiles get ID 2 on ESP32
+      }
+      
+      if (esp32ProfileId !== null) {
+        // Profile is synced to ESP32 - start it by ID (more efficient)
+        console.log(`Starting synced profile by ID: ${profile.name} (ESP32 ID: ${esp32ProfileId})`);
+        await bluetoothHook.startProfileById(esp32ProfileId);
+      } else {
+        // Profile not synced or not assigned to button - send full profile
+        console.log('Starting profile with full data:', profile.name);
+        await bluetoothHook.startProfile({
+          name: profile.name,
+          segments: profile.segments
+        });
+      }
     } catch (error) {
       console.error('Error starting profile:', error);
       alert('Feil ved start av profil. Sjekk Serial Monitor for detaljer.');
     }
-  }, [bluetoothHook]);
+  }, [bluetoothHook, esp32Status, defaultProfile1, defaultProfile2]);
 
   const handleSyncProfiles = async () => {
     if (!bluetoothHook.isConnected) {
@@ -369,19 +396,29 @@ export default function Home() {
               </div>
             )}
             <div className="flex space-x-2">
-              <button 
-                onClick={() => handleStartProfile(profile)}
-                className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
-              >
-                <Play size={14} className="mr-1" />
-                Brew
-              </button>
+              {esp32Status?.is_running ? (
+                <button 
+                  onClick={() => handleStartProfile(profile)}
+                  className="flex items-center px-3 py-1 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                >
+                  <X size={14} className="mr-1" />
+                  Stop
+                </button>
+              ) : (
+                <button 
+                  onClick={() => handleStartProfile(profile)}
+                  className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+                >
+                  <Play size={14} className="mr-1" />
+                  Brew
+                </button>
+              )}
             </div>
           </div>
         </div>
       );
     });
-  }, [profiles, defaultProfile1, defaultProfile2, handleSetDefaultProfile, handleStartProfile]);
+  }, [profiles, defaultProfile1, defaultProfile2, esp32Status?.is_running, handleSetDefaultProfile, handleStartProfile]);
 
   // Memoize profiles tab profile cards
   const profilesTabCards = useMemo(() => {
@@ -451,7 +488,7 @@ export default function Home() {
         </div>
       );
     });
-  }, [profiles, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile]);
+  }, [profiles, esp32Status?.is_running, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile]);
 
   const renderBrewTab = () => {
     // Find currently running profile
