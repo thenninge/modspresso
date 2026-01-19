@@ -98,7 +98,7 @@ export default function Home() {
     if (confirm('Er du sikker på at du vil slette denne profilen?')) {
       setProfiles(profiles.filter(p => p.id !== profileId));
     }
-  }, []);
+  }, [profiles, setProfiles]);
 
   const handleNewProfile = () => {
     setEditingProfile(undefined);
@@ -215,9 +215,6 @@ export default function Home() {
     }
   };
 
-  const handleSimulateProfile = (profile: Profile) => {
-    setSimulatingProfile(profile);
-  };
 
   const handleSetDefaultProfile = useCallback(async (profileId: string, button: 1 | 2) => {
     if (button === 1) {
@@ -426,7 +423,7 @@ export default function Home() {
         </div>
       );
     });
-  }, [profiles, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile, setSimulatingProfile]);
+  }, [profiles, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile]);
 
   const renderBrewTab = () => (
     <div className="space-y-6">
