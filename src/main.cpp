@@ -7,6 +7,7 @@
 #include <WiFi.h>
 #include <HTTPUpdate.h>
 #include <WiFiClientSecure.h>
+#include <Preferences.h>
 #include "rbdimmerESP32.h"
 
 // Pin definitions
@@ -99,6 +100,9 @@ rbdimmer_channel_t* dimmer_channel = NULL;  // Dimmer channel object
 // IMPORTANT: Set back to false when using with real pump in loop!
 bool useSimplePWMTest = false;  // Can be set via serial command "set_pwm_test_mode"
 
+// Preferences for non-volatile storage (NVS)
+Preferences preferences;
+
 // Function declarations
 void handleCommand(const char* command);
 void setupWiFi();
@@ -121,6 +125,12 @@ uint8_t calculateChecksum(CompactProfile& profile);
 bool storeProfile(uint8_t id, JsonObject profileData);
 void setDefaultProfile(int button, uint8_t profileId);
 void startDefaultProfile(int button);
+void saveCalibrationData();
+void loadCalibrationData();
+void saveProfiles();
+void loadProfiles();
+void saveDefaultProfiles();
+void loadDefaultProfiles();
 void sendResponse(DynamicJsonDocument& doc);
 void sendLogMessage(const char* message, const char* level = "info");
 
@@ -153,6 +163,17 @@ class MyCallbacks: public BLECharacteristicCallbacks {
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting Espresso Profiler ESP32...");
+
+  // Initialize Preferences (NVS) for persistent storage
+  preferences.begin("modspresso", false);  // false = read-write mode
+  Serial.println("NVS (Preferences) initialized");
+  
+  // Load saved data from NVS
+  Serial.println("Loading saved data from NVS...");
+  loadCalibrationData();
+  loadProfiles();
+  loadDefaultProfiles();
+  Serial.println("Data loaded from NVS");
 
   // Initialize pins
   pinMode(LED_PIN, OUTPUT);
@@ -359,6 +380,133 @@ void loop() {
   }
 
   delay(10);
+}
+
+// Save calibration data to NVS
+void saveCalibrationData() {
+  preferences.putBool("calibrated", isCalibrated);
+  if (isCalibrated) {
+    // Save calibration data array (11 values: 0-100% in steps of 10)
+    size_t dataSize = sizeof(int) * 11;
+    preferences.putBytes("calib_data", dimLevelToPressure, dataSize);
+    Serial.println("Calibration data saved to NVS");
+  } else {
+    preferences.remove("calib_data");
+    Serial.println("Calibration data cleared from NVS");
+  }
+}
+
+// Load calibration data from NVS
+void loadCalibrationData() {
+  isCalibrated = preferences.getBool("calibrated", false);
+  if (isCalibrated) {
+    // Load calibration data array
+    size_t dataSize = sizeof(int) * 11;
+    if (preferences.getBytesLength("calib_data") == dataSize) {
+      preferences.getBytes("calib_data", dimLevelToPressure, dataSize);
+      Serial.println("Calibration data loaded from NVS:");
+      for (int i = 0; i <= 10; i++) {
+        if (dimLevelToPressure[i] > 0) {
+          Serial.println("  " + String(i * 10) + "% -> " + String(dimLevelToPressure[i]) + " bar");
+        }
+      }
+    } else {
+      Serial.println("WARNING: Calibration data size mismatch, clearing...");
+      isCalibrated = false;
+      preferences.remove("calib_data");
+    }
+  } else {
+    Serial.println("No calibration data found in NVS");
+  }
+}
+
+// Save all profiles to NVS
+void saveProfiles() {
+  preferences.putUChar("profile_count", profileCount);
+  
+  // Save each profile (up to 10 profiles)
+  for (uint8_t i = 0; i < 10; i++) {
+    String key = "prof_" + String(i);
+    CompactProfile& profile = storedProfiles[i];
+    
+    if (profile.id != 255 && profile.segmentCount > 0) {
+      // Profile exists - save it
+      size_t profileSize = sizeof(CompactProfile);
+      preferences.putBytes(key.c_str(), &profile, profileSize);
+    } else {
+      // Profile slot empty - remove it
+      preferences.remove(key.c_str());
+    }
+  }
+  
+  Serial.println("Profiles saved to NVS (count: " + String(profileCount) + ")");
+}
+
+// Load all profiles from NVS
+void loadProfiles() {
+  profileCount = preferences.getUChar("profile_count", 0);
+  
+  int loadedCount = 0;
+  for (uint8_t i = 0; i < 10; i++) {
+    String key = "prof_" + String(i);
+    
+    if (preferences.isKey(key.c_str())) {
+      // Profile exists in NVS - load it
+      size_t profileSize = sizeof(CompactProfile);
+      if (preferences.getBytesLength(key.c_str()) == profileSize) {
+        preferences.getBytes(key.c_str(), &storedProfiles[i], profileSize);
+        
+        // Validate checksum
+        uint8_t calculatedChecksum = calculateChecksum(storedProfiles[i]);
+        if (calculatedChecksum == storedProfiles[i].checksum && storedProfiles[i].id != 255) {
+          loadedCount++;
+          Serial.println("Profile " + String(i) + " loaded: \"" + String(storedProfiles[i].name) + "\" (" + 
+                        String(storedProfiles[i].segmentCount) + " segments)");
+        } else {
+          Serial.println("WARNING: Profile " + String(i) + " checksum mismatch, skipping...");
+          storedProfiles[i].id = 255;  // Mark as empty
+          storedProfiles[i].segmentCount = 0;
+        }
+      } else {
+        Serial.println("WARNING: Profile " + String(i) + " size mismatch, skipping...");
+        storedProfiles[i].id = 255;  // Mark as empty
+        storedProfiles[i].segmentCount = 0;
+      }
+    } else {
+      // Profile slot empty
+      storedProfiles[i].id = 255;
+      storedProfiles[i].segmentCount = 0;
+    }
+  }
+  
+  // Update profileCount to match actual loaded profiles
+  profileCount = loadedCount;
+  Serial.println("Profiles loaded from NVS (count: " + String(profileCount) + ")");
+}
+
+// Save default profiles (button assignments) to NVS
+void saveDefaultProfiles() {
+  preferences.putUChar("default_prof1", defaultProfile1);
+  preferences.putUChar("default_prof2", defaultProfile2);
+  Serial.println("Default profiles saved to NVS: Button1=" + String(defaultProfile1) + ", Button2=" + String(defaultProfile2));
+}
+
+// Load default profiles (button assignments) from NVS
+void loadDefaultProfiles() {
+  defaultProfile1 = preferences.getUChar("default_prof1", 255);
+  defaultProfile2 = preferences.getUChar("default_prof2", 255);
+  
+  // Validate default profile IDs
+  if (defaultProfile1 != 255 && defaultProfile1 >= 10) {
+    Serial.println("WARNING: Invalid default profile 1 ID (" + String(defaultProfile1) + "), clearing...");
+    defaultProfile1 = 255;
+  }
+  if (defaultProfile2 != 255 && defaultProfile2 >= 10) {
+    Serial.println("WARNING: Invalid default profile 2 ID (" + String(defaultProfile2) + "), clearing...");
+    defaultProfile2 = 255;
+  }
+  
+  Serial.println("Default profiles loaded from NVS: Button1=" + String(defaultProfile1) + ", Button2=" + String(defaultProfile2));
 }
 
 void handleCommand(const char* command) {
@@ -901,6 +1049,10 @@ void setCalibrationData(JsonObject calibration) {
   
   if (validPoints > 0) {
     isCalibrated = true;
+    
+    // Save calibration data to NVS
+    saveCalibrationData();
+    
     String logMsg = "Calibration data saved: " + String(validPoints) + " valid points (" + String(totalPoints) + " total)";
     Serial.println(logMsg);
     sendLogMessage(logMsg.c_str(), "info");
@@ -1207,6 +1359,9 @@ bool storeProfile(uint8_t id, JsonObject profileData) {
   Serial.println(logMsg);
   sendLogMessage(logMsg.c_str(), "info");
   
+  // Save profiles to NVS
+  saveProfiles();
+  
   return true;
 }
 
@@ -1244,6 +1399,9 @@ void setDefaultProfile(int button, uint8_t profileId) {
       sendLogMessage(logMsg.c_str(), "info");
     }
   }
+  
+  // Save default profiles to NVS
+  saveDefaultProfiles();
   
   // Send confirmation
   DynamicJsonDocument response(256);
