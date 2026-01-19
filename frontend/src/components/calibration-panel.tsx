@@ -164,14 +164,17 @@ export const CalibrationPanel: React.FC<CalibrationPanelProps> = ({ onComplete, 
     console.log('Default calibration loaded:', defaultCalibration);
   };
 
-  const completeCalibration = () => {
+  const completeCalibration = async () => {
     const calibrationData: Record<number, number> = {};
     steps.forEach(step => {
       if (step.pressure !== null) {
         calibrationData[step.dimLevel] = step.pressure;
       }
     });
-    onComplete(calibrationData);
+    // Save to localStorage immediately
+    localStorage.setItem('modspresso-calibration', JSON.stringify(calibrationData));
+    // Call onComplete which will handle ESP32 sync
+    await onComplete(calibrationData);
   };
 
   const sendToESP32 = async () => {

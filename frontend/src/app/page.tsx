@@ -264,10 +264,23 @@ export default function Home() {
     }
   }, [bluetoothHook, profiles, defaultProfile1, defaultProfile2, setDefaultProfile1, setDefaultProfile2]);
 
-  const handleCalibrationComplete = (calibrationData: Record<number, number>) => {
-    // TODO: Send calibration data to ESP32
+  const handleCalibrationComplete = async (calibrationData: Record<number, number>) => {
+    // Save to localStorage
+    localStorage.setItem('modspresso-calibration', JSON.stringify(calibrationData));
+    
+    // Send to ESP32 if connected
+    if (bluetoothHook.isConnected) {
+      try {
+        await bluetoothHook.setCalibrationData(calibrationData);
+        alert('✅ Kalibrering fullført og synkronisert til ESP32!');
+      } catch (error) {
+        console.error('Error sending calibration to ESP32:', error);
+        alert('Kalibrering lagret lokalt, men kunne ikke synkroniseres til ESP32.');
+      }
+    } else {
+      alert('Kalibrering fullført! Data er lagret lokalt og vil synkroniseres automatisk når du kobler til ESP32.');
+    }
     console.log('Calibration completed:', calibrationData);
-    alert('Kalibrering fullført! Data er lagret.');
   };
 
   // Load-only predefined profiles on demand (main view shows only local profiles)
