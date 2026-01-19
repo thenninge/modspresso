@@ -116,10 +116,22 @@ export default function Home() {
   //   }
   // };
 
-  const handleStartProfile = (profile: Profile) => {
-    // TODO: Send profile to ESP32 via WebSocket
-    console.log('Starting profile:', profile.name);
-    alert(`Starter profil: ${profile.name}`);
+  const handleStartProfile = async (profile: Profile) => {
+    if (!bluetoothHook.isConnected) {
+      alert('Ikke tilkoblet til ESP32! Koble til via Innstillinger først.');
+      return;
+    }
+    
+    try {
+      console.log('Starting profile:', profile.name);
+      await bluetoothHook.startProfile({
+        name: profile.name,
+        segments: profile.segments
+      });
+    } catch (error) {
+      console.error('Error starting profile:', error);
+      alert('Feil ved start av profil. Sjekk Serial Monitor for detaljer.');
+    }
   };
 
   const handleSyncProfiles = async () => {

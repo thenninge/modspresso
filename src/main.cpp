@@ -414,27 +414,50 @@ void executeProfile() {
   unsigned long currentTime = (millis() - startTime) / 1000; // Convert to seconds
   JsonObject segment = profileSegments[currentSegment];
   
-  int startTime = segment["startTime"];
-  int endTime = segment["endTime"];
+  int segmentStartTime = segment["startTime"];
+  int segmentEndTime = segment["endTime"];
   float startPressure = segment["startPressure"];
   float endPressure = segment["endPressure"];
   
-  if (currentTime >= startTime && currentTime <= endTime) {
+  // Log when entering a new segment
+  static int lastLoggedSegment = -1;
+  if (currentSegment != lastLoggedSegment && currentTime >= segmentStartTime) {
+    String msg = "Profile segment " + String(currentSegment + 1) + "/" + String(totalSegments) + 
+                 ": " + String(segmentStartTime) + "s-" + String(segmentEndTime) + "s, " + 
+                 String(startPressure, 1) + "→" + String(endPressure, 1) + " bar";
+    Serial.println(msg);
+    sendLogMessage(msg.c_str(), "info");
+    lastLoggedSegment = currentSegment;
+  }
+  
+  if (currentTime >= segmentStartTime && currentTime <= segmentEndTime) {
     // Calculate target pressure for current time
-    float progress = (float)(currentTime - startTime) / (endTime - startTime);
+    float progress = (float)(currentTime - segmentStartTime) / (segmentEndTime - segmentStartTime);
     float targetPressure = startPressure + (endPressure - startPressure) * progress;
     
     // Convert pressure to dim level and set
     int dimLevel = pressureToDimLevel(targetPressure);
-    setDimLevel(dimLevel);
     
-    // Log dim level change for profile execution
+    // Log dim level changes (every second or when level changes significantly)
     static int lastLoggedDimLevel = -1;
+    static unsigned long lastLogTime = 0;
+    bool shouldLog = false;
+    
     if (dimLevel != lastLoggedDimLevel) {
-      String msg = "Profile execution: Dim level set to " + String(dimLevel) + "% (target pressure: " + String(targetPressure, 1) + " bar)";
-      sendLogMessage(msg.c_str(), "debug");
-      lastLoggedDimLevel = dimLevel;
+      shouldLog = true; // Always log when dim level changes
+    } else if (millis() - lastLogTime >= 1000) {
+      shouldLog = true; // Log at least once per second
     }
+    
+    if (shouldLog) {
+      String msg = "Brew: " + String(currentTime) + "s | Target: " + String(targetPressure, 1) + " bar | Dim: " + String(dimLevel) + "%";
+      Serial.println(msg);
+      sendLogMessage(msg.c_str(), "info");
+      lastLoggedDimLevel = dimLevel;
+      lastLogTime = millis();
+    }
+    
+    setDimLevel(dimLevel);
     
     // Send pressure update
     DynamicJsonDocument update(256);
@@ -443,9 +466,10 @@ void executeProfile() {
     update["target_pressure"] = targetPressure;
     update["current_time"] = currentTime;
     sendResponse(update);
-  } else if (currentTime > endTime) {
+  } else if (currentTime > segmentEndTime) {
     // Move to next segment
     currentSegment++;
+    lastLoggedSegment = currentSegment - 1; // Reset so new segment gets logged
   }
 }
 
