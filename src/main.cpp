@@ -90,10 +90,10 @@ rbdimmer_channel_t* dimmer_channel = NULL;  // Dimmer channel object
 // IMPORTANT: Set back to true when using with real pump in loop!
 #define REQUIRE_ZERO_CROSS true  // Set to false to test dimmer without zero-cross input
 
-// SIMPLE PWM TEST MODE: Set to true to use simple PWM instead of RBDimmer library
+// SIMPLE PWM TEST MODE: Runtime variable (can be changed via serial command)
 // This is ONLY for testing if dimmer LED lights up - NOT for real pump operation!
 // IMPORTANT: Set back to false when using with real pump in loop!
-#define USE_SIMPLE_PWM_TEST false  // Set to true for simple PWM test (bypasses RBDimmer completely)
+bool useSimplePWMTest = false;  // Can be set via serial command "set_pwm_test_mode"
 
 // Function declarations
 void handleCommand(const char* command);
@@ -158,7 +158,7 @@ void setup() {
   digitalWrite(LED_PIN, LOW);
 
   // Initialize dimmer - either simple PWM test mode or RBDimmer library
-  if (USE_SIMPLE_PWM_TEST) {
+  if (useSimplePWMTest) {
     // SIMPLE PWM TEST MODE: Direct PWM output for testing dimmer LED
     // WARNING: This is ONLY for testing - NOT for real pump operation!
     Serial.println("========================================");
@@ -435,6 +435,35 @@ void handleCommand(const char* command) {
     response["status"] = "profiles_cleared";
     response["profile_count"] = 0;
     sendResponse(response);
+  } else if (cmd == "set_pwm_test_mode") {
+    // Toggle simple PWM test mode (for testing dimmer LED)
+    bool enable = doc["enable"] | false;
+    useSimplePWMTest = enable;
+    
+    if (useSimplePWMTest) {
+      // Initialize simple PWM if not already done
+      ledcSetup(0, 5000, 8);  // Channel 0, 5kHz frequency, 8-bit resolution (0-255)
+      ledcAttachPin(DIMMER_PIN, 0);  // Attach GPIO25 to channel 0
+      ledcWrite(0, 0);  // Start with 0 (off)
+      
+      String logMsg = "Simple PWM test mode ENABLED (RBDimmer disabled)";
+      Serial.println("========================================");
+      Serial.println(logMsg);
+      Serial.println("  WARNING: This is ONLY for testing dimmer LED!");
+      Serial.println("  Set back to false for real pump operation!");
+      Serial.println("  Send: {\"command\":\"set_pwm_test_mode\",\"enable\":false}");
+      Serial.println("========================================");
+      sendLogMessage(logMsg.c_str(), "warn");
+    } else {
+      String logMsg = "Simple PWM test mode DISABLED (RBDimmer enabled)";
+      Serial.println(logMsg);
+      sendLogMessage(logMsg.c_str(), "info");
+    }
+    
+    DynamicJsonDocument response(256);
+    response["status"] = "pwm_test_mode_set";
+    response["enabled"] = useSimplePWMTest;
+    sendResponse(response);
   }
 }
 
@@ -710,7 +739,7 @@ void setDimLevel(int level) {
   // Clamp level between 0 and 100
   level = constrain(level, 0, 100);
   
-  if (USE_SIMPLE_PWM_TEST) {
+  if (useSimplePWMTest) {
     // SIMPLE PWM TEST MODE: Direct PWM output for testing dimmer LED
     // Map 0-100% to 0-255 PWM value
     int pwmValue = map(level, 0, 100, 0, 255);
