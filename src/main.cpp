@@ -113,12 +113,21 @@ void sendLogMessage(const char* message, const char* level = "info");
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       deviceConnected = true;
-      Serial.println("Device connected");
+      Serial.println("Device connected - waiting before sending initial messages...");
       digitalWrite(LED_PIN, HIGH);
-      // Send initial status update when device connects
-      delay(100); // Small delay to ensure connection is stable
+      
+      // Wait longer to ensure notifications are fully set up on client side
+      delay(500); // Give Web Bluetooth time to complete startNotifications()
+      
+      Serial.println("Sending initial status update...");
       sendStatusUpdate();
+      
+      delay(100); // Small delay between messages
+      
+      Serial.println("Sending initial log message...");
       sendLogMessage("ESP32 connected and ready", "info");
+      
+      Serial.println("Initial messages sent");
     };
 
     void onDisconnect(BLEServer* pServer) {
@@ -774,20 +783,30 @@ void startDefaultProfile(int button) {
 }
 
 void sendResponse(DynamicJsonDocument& doc) {
-  if (deviceConnected) {
+  if (deviceConnected && pCharacteristic) {
     String jsonString;
     serializeJson(doc, jsonString);
     
+    // Check if message is too long (BLE MTU is typically 20-23 bytes for notifications)
+    if (jsonString.length() > 500) {
+      Serial.println("WARNING: Message too long, truncating: " + String(jsonString.length()) + " bytes");
+      jsonString = jsonString.substring(0, 500);
+    }
+    
     pCharacteristic->setValue(jsonString.c_str());
     pCharacteristic->notify();
-    
-    Serial.println("Sent: " + jsonString);
+    Serial.println("Sent (" + String(jsonString.length()) + " bytes): " + jsonString);
+  } else {
+    Serial.println("WARNING: Cannot send response - device not connected or characteristic not initialized");
   }
 }
 
 // Send log message via BLE (for Serial Monitor in webapp)
 void sendLogMessage(const char* message, const char* level) {
-  if (deviceConnected) {
+  // Always print to Serial as well
+  Serial.println("[LOG] " + String(message));
+  
+  if (deviceConnected && pCharacteristic) {
     DynamicJsonDocument logDoc(512);
     logDoc["type"] = "serial_log";
     logDoc["message"] = message;
@@ -797,11 +816,18 @@ void sendLogMessage(const char* message, const char* level) {
     String jsonString;
     serializeJson(logDoc, jsonString);
     
+    // Check if message is too long
+    if (jsonString.length() > 500) {
+      Serial.println("WARNING: Log message too long, truncating");
+      jsonString = jsonString.substring(0, 500);
+    }
+    
     pCharacteristic->setValue(jsonString.c_str());
     pCharacteristic->notify();
+    Serial.println("Log sent via BLE (" + String(jsonString.length()) + " bytes): " + String(message));
+  } else {
+    Serial.println("DEBUG: Device not connected, skipping BLE log");
   }
-  // Always print to Serial as well
-  Serial.println(message);
 }
 
 // WiFi and OTA functions

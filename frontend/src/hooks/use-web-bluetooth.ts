@@ -207,9 +207,18 @@ export const useWebBluetooth = () => {
       characteristicRef.current = characteristic;
 
       // Set up notifications
-      await characteristic.startNotifications();
+      console.log('Starting BLE notifications...');
+      try {
+        await characteristic.startNotifications();
+        console.log('BLE notifications started successfully');
+      } catch (err) {
+        console.error('Failed to start notifications:', err);
+        throw err;
+      }
       
+      console.log('Setting up characteristicvaluechanged event listener...');
       characteristic.addEventListener('characteristicvaluechanged', (event) => {
+        console.log('characteristicvaluechanged event received!'); // Debug
         const value = (event.target as unknown as BluetoothRemoteGATTCharacteristic).value;
         if (value) {
           const decoder = new TextDecoder();
