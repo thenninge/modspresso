@@ -75,7 +75,7 @@ export default function Home() {
       setEditingProfile(profile);
     }
     setShowEditor(true);
-  }, [setShowEditor, setEditingProfile]);
+  }, []);
 
   const handleEditVisualProfile = useCallback((profile: Profile) => {
     const isPredefined = predefinedProfiles.some(p => p.id === profile.id);
@@ -92,13 +92,13 @@ export default function Home() {
       setEditingProfile(profile);
     }
     setShowVisualEditor(true);
-  }, [setShowVisualEditor, setEditingProfile]);
+  }, []);
 
   const handleDeleteProfile = useCallback((profileId: string) => {
     if (confirm('Er du sikker på at du vil slette denne profilen?')) {
       setProfiles(profiles.filter(p => p.id !== profileId));
     }
-  }, [profiles, setProfiles]);
+  }, []);
 
   const handleNewProfile = () => {
     setEditingProfile(undefined);
@@ -537,101 +537,6 @@ export default function Home() {
           </div>
         ) : (
           profilesTabCards
-        )}
-      </div>
-    </div>
-  );
-            const isPredefined = predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id);
-            return (
-            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="text-lg font-semibold text-gray-800">{profile.name}</h3>
-                    {isPredefined && (
-                      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">Forhåndsdefinert</span>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-600">{profile.description}</p>
-                </div>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={() => handleEditProfile(profile)}
-                    className="p-2 text-blue-500 hover:bg-blue-50 rounded"
-                    title={isPredefined ? "Kopier og rediger" : "Rediger profil"}
-                  >
-                    <Settings size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleEditVisualProfile(profile)}
-                    className="p-2 text-purple-500 hover:bg-purple-50 rounded"
-                    title={isPredefined ? "Kopier og rediger visuelt" : "Rediger profil visuelt"}
-                  >
-                    <BarChart3 size={16} />
-                  </button>
-                  {!isPredefined && (
-                    <button
-                      onClick={() => handleDeleteProfile(profile.id)}
-                      className="p-2 text-red-500 hover:bg-red-50 rounded"
-                      title="Slett profil"
-                    >
-                      <Plus size={16} className="rotate-45" />
-                    </button>
-                  )}
-                </div>
-              </div>
-              
-              <div className="mb-4">
-                <PressureChart segments={profile.segments} height={200} showArea={false} />
-              </div>
-
-              <div className="flex justify-between items-center">
-                <div className="flex space-x-2">
-                  <button 
-                  onClick={() => handleStartProfile(profile)}
-                  className="flex items-center px-3 py-1 bg-green-500 text-white rounded text-sm hover:bg-green-600"
-                >
-                  <Play size={14} className="mr-1" />
-                  Kjør
-                  </button>
-                  <button 
-                    onClick={() => handleSimulateProfile(profile)}
-                    className="flex items-center px-3 py-1 bg-purple-500 text-white rounded text-sm hover:bg-purple-600"
-                  >
-                    <Play size={14} className="mr-1" />
-                    Simuler
-                  </button>
-                  {!isPredefined && (
-                    <div className="flex space-x-1">
-                      <button
-                        onClick={() => handleSetDefaultProfile(profile.id, 1)}
-                        className={`px-2 py-1 text-xs rounded ${
-                          defaultProfile1 === profile.id 
-                            ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title={defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
-                      >
-                        1
-                      </button>
-                      <button
-                        onClick={() => handleSetDefaultProfile(profile.id, 2)}
-                        className={`px-2 py-1 text-xs rounded ${
-                          defaultProfile2 === profile.id 
-                            ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title={defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
-                      >
-                        2
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-          </div>
-            );
-          })
         )}
       </div>
     </div>
