@@ -453,52 +453,52 @@ export default function Home() {
   // Memoize profile cards to prevent re-rendering charts when only bluetooth status changes
   const brewProfileCards = useMemo(() => {
     return profiles.map((profile) => {
-      const isPredefined = predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id);
-      return (
-        <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
-          <div className="flex justify-between items-start mb-4">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold text-gray-800">{profile.name}</h3>
-                {isPredefined && (
-                  <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">Forhåndsdefinert</span>
-                )}
+            const isPredefined = predefinedProfiles.some(p => p.id === profile.id) && !profiles.some(p => p.id === profile.id);
+            return (
+            <div key={profile.id} className={`rounded-lg shadow-md p-6 ${isPredefined ? 'bg-blue-50 border border-blue-200' : 'bg-white'}`}>
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-semibold text-gray-800">{profile.name}</h3>
+                    {isPredefined && (
+                      <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">Forhåndsdefinert</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-600">{profile.description}</p>
+                </div>
               </div>
-              <p className="text-sm text-gray-600">{profile.description}</p>
-            </div>
-          </div>
-          
-          <div className="mb-4">
-            <PressureChart segments={profile.segments} height={200} showArea={false} />
-          </div>
+              
+              <div className="mb-4">
+                <PressureChart segments={profile.segments} height={200} showArea={false} />
+              </div>
 
-          <div className="flex justify-between items-center">
-            {!isPredefined && (
-              <div className="flex space-x-1">
-                <button
-                  onClick={() => handleSetDefaultProfile(profile.id, 1)}
-                  className={`px-2 py-1 text-xs rounded ${
-                    defaultProfile1 === profile.id 
-                      ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                  title={defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
-                >
-                  1
-                </button>
-                <button
-                  onClick={() => handleSetDefaultProfile(profile.id, 2)}
-                  className={`px-2 py-1 text-xs rounded ${
-                    defaultProfile2 === profile.id 
-                      ? 'bg-blue-500 text-white hover:bg-blue-600' 
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                  title={defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
-                >
-                  2
-                </button>
-              </div>
-            )}
+              <div className="flex justify-between items-center">
+                {!isPredefined && (
+                  <div className="flex space-x-1">
+                    <button
+                      onClick={() => handleSetDefaultProfile(profile.id, 1)}
+                      className={`px-2 py-1 text-xs rounded ${
+                        defaultProfile1 === profile.id 
+                          ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title={defaultProfile1 === profile.id ? "Fjern fra default profil 1" : "Sett som default profil 1"}
+                    >
+                      1
+                    </button>
+                    <button
+                      onClick={() => handleSetDefaultProfile(profile.id, 2)}
+                      className={`px-2 py-1 text-xs rounded ${
+                        defaultProfile2 === profile.id 
+                          ? 'bg-blue-500 text-white hover:bg-blue-600' 
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                      title={defaultProfile2 === profile.id ? "Fjern fra default profil 2" : "Sett som default profil 2"}
+                    >
+                      2
+                    </button>
+                  </div>
+                )}
             <BrewButton profile={profile} onStartProfile={handleStartProfile} />
           </div>
         </div>
@@ -522,8 +522,8 @@ export default function Home() {
               </div>
               <p className="text-sm text-gray-600">{profile.description}</p>
             </div>
-            <div className="flex space-x-2">
-              <button
+                <div className="flex space-x-2">
+                  <button 
                 onClick={() => handleEditProfile(profile)}
                 className="p-2 text-blue-500 hover:bg-blue-50 rounded"
                 title={isPredefined ? "Kopier og rediger" : "Rediger profil"}
@@ -609,10 +609,10 @@ export default function Home() {
                       }
                     }}
                     className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    disabled={isRunning}
+                    disabled={isRunning || !isMounted}
                   >
                     <option value="">-- Velg profil --</option>
-                    {profiles.map((profile) => (
+                    {isMounted && profiles.map((profile) => (
                       <option key={profile.id} value={profile.id}>
                         {profile.name}
                       </option>
@@ -716,8 +716,8 @@ export default function Home() {
             </div>
           </div>
         ) : null}
-      </div>
-    );
+    </div>
+  );
   };
 
   const renderProfilesTab = () => (
