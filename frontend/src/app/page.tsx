@@ -156,6 +156,7 @@ export default function Home() {
     
     try {
       // Check if profile is assigned to a button - if so, we know the ESP32 ID
+      // Profiles assigned to button 1 get ID 1, button 2 gets ID 2 on ESP32
       let esp32ProfileId: number | null = null;
       if (profile.id === defaultProfile1) {
         esp32ProfileId = 1; // Button 1 profiles get ID 1 on ESP32
@@ -163,12 +164,26 @@ export default function Home() {
         esp32ProfileId = 2; // Button 2 profiles get ID 2 on ESP32
       }
       
+      // Also check if this profile was synced with a specific ID
+      // We need to search through synced profiles to find the ESP32 ID
+      // For now, try to use button-assigned IDs, or send full profile if not synced
+      
       if (esp32ProfileId !== null) {
-        // Profile is synced to ESP32 - start it by ID (more efficient)
-        console.log(`Starting synced profile by ID: ${profile.name} (ESP32 ID: ${esp32ProfileId})`);
-        await bluetoothHook.startProfileById(esp32ProfileId);
+        // Profile is assigned to a button - try to start by ID first (more efficient)
+        // If that fails (profile not synced), fall back to sending full profile
+        try {
+          console.log(`Starting button-assigned profile by ID: ${profile.name} (ESP32 ID: ${esp32ProfileId})`);
+          await bluetoothHook.startProfileById(esp32ProfileId);
+        } catch (error) {
+          console.warn('Failed to start by ID, sending full profile instead:', error);
+          // Fallback: send full profile if profile by ID fails
+          await bluetoothHook.startProfile({
+            name: profile.name,
+            segments: profile.segments
+          });
+        }
       } else {
-        // Profile not synced or not assigned to button - send full profile
+        // Profile not assigned to button - send full profile
         console.log('Starting profile with full data:', profile.name);
         await bluetoothHook.startProfile({
           name: profile.name,
@@ -656,7 +671,7 @@ export default function Home() {
           {/* Large chart - shows live data when running, target curve when not */}
           {displayedProfile ? (
             <div>
-              {isRunning && liveBrewData && liveBrewData.length > 0 ? (
+              {isRunning ? (
                 <LiveBrewChart 
                   profile={displayedProfile}
                   liveData={liveBrewData}
