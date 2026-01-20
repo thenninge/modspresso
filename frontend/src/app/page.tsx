@@ -54,8 +54,8 @@ export default function Home() {
   const [defaultProfile2, setDefaultProfile2] = useLocalStorage<string>('modspresso-default-profile-2', '');
 
   // Auto-select running profile when it starts via button
-  const isRunning = esp32Status?.is_running || false;
-  const runningProfile = isRunning 
+  const isRunningGlobal = esp32Status?.is_running || false;
+  const runningProfileGlobal = isRunningGlobal 
     ? profiles.find(p => {
         const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
         const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
@@ -64,10 +64,10 @@ export default function Home() {
     : null;
 
   React.useEffect(() => {
-    if (isRunning && runningProfile && (!selectedBrewProfile || selectedBrewProfile !== runningProfile.id)) {
-      setSelectedBrewProfile(runningProfile.id);
+    if (isRunningGlobal && runningProfileGlobal && (!selectedBrewProfile || selectedBrewProfile !== runningProfileGlobal.id)) {
+      setSelectedBrewProfile(runningProfileGlobal.id);
     }
-  }, [isRunning, runningProfile?.id, selectedBrewProfile]);
+  }, [isRunningGlobal, runningProfileGlobal?.id, selectedBrewProfile]);
 
   const handleSaveProfile = (profile: Profile) => {
     if (editingProfile) {
@@ -551,6 +551,16 @@ export default function Home() {
   }, [profiles, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile]);
 
   const renderBrewTab = () => {
+    // Find currently running profile
+    const isRunning = esp32Status?.is_running || false;
+    const runningProfile = isRunning 
+      ? profiles.find(p => {
+          const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
+          const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
+          return isDefault1 || isDefault2;
+        })
+      : null;
+
     // Determine which profile to display in the chart
     // If running, use the running profile; otherwise use selected profile
     const displayedProfile = isRunning && runningProfile 
