@@ -33,6 +33,22 @@ export default function Home() {
   React.useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  // Auto-select running profile when it starts via button
+  const isRunning = esp32Status?.is_running || false;
+  const runningProfile = isRunning 
+    ? profiles.find(p => {
+        const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
+        const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
+        return isDefault1 || isDefault2;
+      })
+    : null;
+
+  React.useEffect(() => {
+    if (isRunning && runningProfile && (!selectedBrewProfile || selectedBrewProfile !== runningProfile.id)) {
+      setSelectedBrewProfile(runningProfile.id);
+    }
+  }, [isRunning, runningProfile?.id]);
   const [profiles, setProfiles] = useLocalStorage<Profile[]>('modspresso-profiles', [
     {
       id: '1',
@@ -535,17 +551,6 @@ export default function Home() {
   }, [profiles, handleEditProfile, handleEditVisualProfile, handleDeleteProfile, handleStartProfile]);
 
   const renderBrewTab = () => {
-    // Find currently running profile
-    const isRunning = esp32Status?.is_running || false;
-    const runningProfile = isRunning 
-      ? profiles.find(p => {
-          // Try to match by name or check if it's one of the default profiles
-          const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
-          const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
-          return isDefault1 || isDefault2;
-        })
-      : null;
-
     // Determine which profile to display in the chart
     // If running, use the running profile; otherwise use selected profile
     const displayedProfile = isRunning && runningProfile 
@@ -553,13 +558,6 @@ export default function Home() {
       : selectedBrewProfile 
         ? profiles.find(p => p.id === selectedBrewProfile) || null
         : null;
-
-    // Auto-select running profile when it starts via button
-    React.useEffect(() => {
-      if (isRunning && runningProfile && (!selectedBrewProfile || selectedBrewProfile !== runningProfile.id)) {
-        setSelectedBrewProfile(runningProfile.id);
-      }
-    }, [isRunning, runningProfile, selectedBrewProfile]);
 
     return (
       <div className="space-y-6">
