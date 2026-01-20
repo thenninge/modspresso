@@ -33,22 +33,6 @@ export default function Home() {
   React.useEffect(() => {
     setIsMounted(true);
   }, []);
-
-  // Auto-select running profile when it starts via button
-  const isRunning = esp32Status?.is_running || false;
-  const runningProfile = isRunning 
-    ? profiles.find(p => {
-        const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
-        const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
-        return isDefault1 || isDefault2;
-      })
-    : null;
-
-  React.useEffect(() => {
-    if (isRunning && runningProfile && (!selectedBrewProfile || selectedBrewProfile !== runningProfile.id)) {
-      setSelectedBrewProfile(runningProfile.id);
-    }
-  }, [isRunning, runningProfile?.id]);
   const [profiles, setProfiles] = useLocalStorage<Profile[]>('modspresso-profiles', [
     {
       id: '1',
@@ -68,6 +52,22 @@ export default function Home() {
   // Default profiles for hardware buttons
   const [defaultProfile1, setDefaultProfile1] = useLocalStorage<string>('modspresso-default-profile-1', '');
   const [defaultProfile2, setDefaultProfile2] = useLocalStorage<string>('modspresso-default-profile-2', '');
+
+  // Auto-select running profile when it starts via button
+  const isRunning = esp32Status?.is_running || false;
+  const runningProfile = isRunning 
+    ? profiles.find(p => {
+        const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
+        const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
+        return isDefault1 || isDefault2;
+      })
+    : null;
+
+  React.useEffect(() => {
+    if (isRunning && runningProfile && (!selectedBrewProfile || selectedBrewProfile !== runningProfile.id)) {
+      setSelectedBrewProfile(runningProfile.id);
+    }
+  }, [isRunning, runningProfile?.id, selectedBrewProfile]);
 
   const handleSaveProfile = (profile: Profile) => {
     if (editingProfile) {
