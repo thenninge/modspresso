@@ -22,6 +22,7 @@ export default function Home() {
   const [editingProfile, setEditingProfile] = useState<Profile | undefined>();
   const [simulatingProfile, setSimulatingProfile] = useState<Profile | null>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [selectedBrewProfile, setSelectedBrewProfile] = useState<string>('');
   
   // Use Web Bluetooth hook at top level to maintain connection across tab switches
   const bluetoothHook = useWebBluetooth();
@@ -545,58 +546,153 @@ export default function Home() {
         })
       : null;
 
+    // Determine which profile to display in the chart
+    // If running, use the running profile; otherwise use selected profile
+    const displayedProfile = isRunning && runningProfile 
+      ? runningProfile 
+      : selectedBrewProfile 
+        ? profiles.find(p => p.id === selectedBrewProfile) || null
+        : null;
+
+    // Auto-select running profile when it starts via button
+    React.useEffect(() => {
+      if (isRunning && runningProfile && (!selectedBrewProfile || selectedBrewProfile !== runningProfile.id)) {
+        setSelectedBrewProfile(runningProfile.id);
+      }
+    }, [isRunning, runningProfile, selectedBrewProfile]);
+
     return (
       <div className="space-y-6">
-        {/* Live Brew Chart - show when profile is running */}
-        {isRunning && runningProfile && liveBrewData && liveBrewData.length > 0 && (
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <LiveBrewChart 
-              profile={runningProfile}
-              liveData={liveBrewData}
-              isRunning={true}
-              height={400}
-            />
-          </div>
-        )}
-
-        <div className="flex justify-between items-center">
-          <div>
-            <div className="flex space-x-4 mt-2 text-sm text-gray-600">
-              <div className="flex items-center">
-                <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
-                Default 1: {defaultProfile1Name}
-              </div>
-              <div className="flex items-center">
-                <span className="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
-                Default 2: {defaultProfile2Name}
+        {/* Large profile chart at the top */}
+        <div className="bg-white rounded-lg shadow-md p-6">
+          <div className="mb-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">Bryggeprofil</h2>
+              <div className="flex items-center space-x-4">
+                {/* Profile selector dropdown */}
+                <div className="flex items-center space-x-2">
+                  <label htmlFor="profile-select" className="text-sm font-medium text-gray-700">
+                    Velg profil:
+                  </label>
+                  <select
+                    id="profile-select"
+                    value={displayedProfile?.id || ''}
+                    onChange={(e) => {
+                      const profileId = e.target.value;
+                      setSelectedBrewProfile(profileId);
+                      // Stop current profile if selecting a new one
+                      if (isRunning && bluetoothHook.isConnected) {
+                        bluetoothHook.stopProfile();
+                      }
+                    }}
+                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    disabled={isRunning}
+                  >
+                    <option value="">-- Velg profil --</option>
+                    {profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                {/* Start/Stop button */}
+                {displayedProfile && (
+                  <button
+                    onClick={() => {
+                      if (isRunning) {
+                        bluetoothHook.stopProfile();
+                      } else {
+                        handleStartProfile(displayedProfile);
+                      }
+                    }}
+                    disabled={!bluetoothHook.isConnected}
+                    className={`flex items-center px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                      isRunning
+                        ? 'bg-red-500 text-white hover:bg-red-600'
+                        : 'bg-green-500 text-white hover:bg-green-600'
+                    } disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed`}
+                  >
+                    {isRunning ? (
+                      <>
+                        <X size={16} className="mr-2" />
+                        Stopp
+                      </>
+                    ) : (
+                      <>
+                        <Play size={16} className="mr-2" />
+                        Start Brygging
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
+
+            {/* Show button status if not running */}
+            {!isRunning && (
+              <div className="flex space-x-4 text-sm text-gray-600 mb-4">
+                <div className="flex items-center">
+                  <span className="w-3 h-3 rounded-full bg-blue-500 mr-2"></span>
+                  Knapp 1 (SW1): {defaultProfile1Name}
+                </div>
+                <div className="flex items-center">
+                  <span className="w-3 h-3 rounded-full bg-green-500 mr-2"></span>
+                  Knapp 2 (SW2): {defaultProfile2Name}
+                </div>
+              </div>
+            )}
           </div>
+
+          {/* Large chart - shows live data when running, target curve when not */}
+          {displayedProfile ? (
+            <div>
+              {isRunning && liveBrewData && liveBrewData.length > 0 ? (
+                <LiveBrewChart 
+                  profile={displayedProfile}
+                  liveData={liveBrewData}
+                  isRunning={true}
+                  height={500}
+                />
+              ) : (
+                <div>
+                  <div className="mb-2 text-sm text-gray-600">
+                    Målprofil: {displayedProfile.name}
+                  </div>
+                  <PressureChart segments={displayedProfile.segments} height={500} showArea={true} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg" style={{ height: 500 }}>
+              <div className="text-center text-gray-500">
+                <Coffee className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Ingen profil valgt</h3>
+                <p className="text-gray-600">Velg en profil fra nedtrekksmenyen for å starte brygging</p>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* Info section */}
         {!isMounted ? (
-          // Server-side: Always show loading state
-          <div className="col-span-full text-center py-12">
-            <div className="text-gray-500 mb-4">
+          <div className="bg-white rounded-lg shadow-md p-6 text-center">
+            <div className="text-gray-500">
               <Coffee className="h-12 w-12 mx-auto mb-4 text-gray-300" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Laster profiler...</h3>
               <p className="text-gray-600">Venter på data</p>
             </div>
           </div>
         ) : profiles.length === 0 ? (
-          // Client-side: Show empty state
-          <div className="col-span-full text-center py-12">
-            <div className="text-gray-500 mb-4">
+          <div className="bg-white rounded-lg shadow-md p-6 text-center">
+            <div className="text-gray-500">
               <Coffee className="h-12 w-12 mx-auto mb-4 text-gray-300" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">Ingen profiler ennå</h3>
               <p className="text-gray-600">Gå til Profiler-fanen for å opprette eller laste inn profiler</p>
             </div>
           </div>
-        ) : (
-          brewProfileCards
-        )}
-        </div>
+        ) : null}
       </div>
     );
   };
