@@ -740,7 +740,10 @@ void startProfile(JsonObject profile) {
   // Send confirmation
   DynamicJsonDocument response(256);
   response["status"] = "profile_started";
+  response["profile_id"] = 255; // Unknown for ad-hoc BLE profile
+  response["profile_name"] = profileName;
   response["segments"] = totalSegments;
+  response["start_time"] = startTime; // millis since boot
   sendResponse(response);
 }
 
@@ -1173,73 +1176,7 @@ void checkHardwareButtons() {
   
   unsigned long currentTime = millis();
   
-  // IMPORTANT SAFETY FEATURE: Emergency stop
-  // If a button is released (goes HIGH/0) while profile is running, stop the profile immediately
-  if (isRunning) {
-    // Check if button 1 was released (HIGH = not pressed)
-    if (button1State == HIGH && lastButton1State == LOW) {
-      // Button 1 was released while profile is running - EMERGENCY STOP
-      String msg = "[EMERGENCY STOP] SW1 (Button 1) released - stopping brew profile immediately!";
-      Serial.println(msg);
-      sendLogMessage(msg.c_str(), "error");
-      stopProfile();
-      lastButton1State = button1State;
-      lastButton1Time = currentTime;
-      return;
-    }
-    
-    // Check if button 2 was released (HIGH = not pressed)
-    if (button2State == HIGH && lastButton2State == LOW) {
-      // Button 2 was released while profile is running - EMERGENCY STOP
-      String msg = "[EMERGENCY STOP] SW2 (Button 2) released - stopping brew profile immediately!";
-      Serial.println(msg);
-      sendLogMessage(msg.c_str(), "error");
-      stopProfile();
-      lastButton2State = button2State;
-      lastButton2Time = currentTime;
-      return;
-    }
-    
-    // Check if button state is HIGH while running (button not pressed during operation)
-    // Only check for HIGH if we've had at least one loop cycle with the button in the correct state
-    // This prevents false emergency stops right after profile start
-    // NOTE: button1StateInitialized and button2StateInitialized are now global variables
-    // that are reset in stopProfile() to prevent issues when starting new profiles
-    
-    // Only check for HIGH (not pressed) if button was confirmed LOW (pressed) when profile started
-    // This prevents false emergency stops when button is already HIGH at profile start
-    if (button1State == HIGH && isRunning && button1StateInitialized) {
-      // Button 1 is not pressed while profile is running - stop it
-      String msg = "[EMERGENCY STOP] SW1 (Button 1) not pressed - stopping brew profile!";
-      Serial.println(msg);
-      sendLogMessage(msg.c_str(), "error");
-      stopProfile();
-      lastButton1State = button1State;
-      return;
-    } else if (button1State == LOW && isRunning) {
-      // Button is pressed - mark as initialized (only once per profile)
-      if (!button1StateInitialized) {
-        button1StateInitialized = true;
-        Serial.println("DEBUG: Button1 state initialized (LOW/pressed) for this profile");
-      }
-    }
-    
-    if (button2State == HIGH && isRunning && button2StateInitialized) {
-      // Button 2 is not pressed while profile is running - stop it
-      String msg = "[EMERGENCY STOP] SW2 (Button 2) not pressed - stopping brew profile!";
-      Serial.println(msg);
-      sendLogMessage(msg.c_str(), "error");
-      stopProfile();
-      lastButton2State = button2State;
-      return;
-    } else if (button2State == LOW && isRunning) {
-      // Button is pressed - mark as initialized (only once per profile)
-      if (!button2StateInitialized) {
-        button2StateInitialized = true;
-        Serial.println("DEBUG: Button2 state initialized (LOW/pressed) for this profile");
-      }
-    }
-  }
+  // When running, allow no button pressed. Use a press to stop the profile.
   
   // Check button 1 (Profile 1) - normal operation (only when not running)
   if (button1State != lastButton1State) {
@@ -1249,18 +1186,24 @@ void checkHardwareButtons() {
         Serial.println(msg);
         sendLogMessage(msg.c_str(), "info");
         
-        if (!isRunning && defaultProfile1 != 255) {
-        // Button 1 pressed - start default profile 1
+        if (isRunning) {
+          msg = "SW1 (Button 1): Stop requested while running";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "warn");
+          stopProfile();
+          lastButton1Time = currentTime;
+          lastButton1State = button1State;
+          return;
+        }
+
+        if (defaultProfile1 != 255) {
+          // Button 1 pressed - start default profile 1
           msg = "Starting default profile 1 (ID: " + String(defaultProfile1) + ")";
           Serial.println(msg);
           sendLogMessage(msg.c_str(), "info");
-        startDefaultProfile(1);
-        } else if (defaultProfile1 == 255) {
-          msg = "SW1 (Button 1): No default profile set (set via BLE)";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "warn");
+          startDefaultProfile(1);
         } else {
-          msg = "SW1 (Button 1): Ignored - profile already running";
+          msg = "SW1 (Button 1): No default profile set (set via BLE)";
           Serial.println(msg);
           sendLogMessage(msg.c_str(), "warn");
         }
@@ -1282,18 +1225,24 @@ void checkHardwareButtons() {
         Serial.println(msg);
         sendLogMessage(msg.c_str(), "info");
         
-        if (!isRunning && defaultProfile2 != 255) {
-        // Button 2 pressed - start default profile 2
+        if (isRunning) {
+          msg = "SW2 (Button 2): Stop requested while running";
+          Serial.println(msg);
+          sendLogMessage(msg.c_str(), "warn");
+          stopProfile();
+          lastButton2Time = currentTime;
+          lastButton2State = button2State;
+          return;
+        }
+
+        if (defaultProfile2 != 255) {
+          // Button 2 pressed - start default profile 2
           msg = "Starting default profile 2 (ID: " + String(defaultProfile2) + ")";
           Serial.println(msg);
           sendLogMessage(msg.c_str(), "info");
-        startDefaultProfile(2);
-        } else if (defaultProfile2 == 255) {
-          msg = "SW2 (Button 2): No default profile set (set via BLE)";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "warn");
+          startDefaultProfile(2);
         } else {
-          msg = "SW2 (Button 2): Ignored - profile already running";
+          msg = "SW2 (Button 2): No default profile set (set via BLE)";
           Serial.println(msg);
           sendLogMessage(msg.c_str(), "warn");
         }
@@ -1523,6 +1472,7 @@ void startDefaultProfile(int button) {
   response["profile_id"] = profileId;
   response["profile_name"] = profile.name;
   response["segments"] = profile.segmentCount;
+  response["start_time"] = startTime; // millis since boot
   sendResponse(response);
 }
 

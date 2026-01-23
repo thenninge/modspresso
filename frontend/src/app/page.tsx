@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Coffee, Settings, BarChart3, Play, Plus, SlidersHorizontal, X } from 'lucide-react';
+import { Coffee, Settings, BarChart3, Play, Plus, SlidersHorizontal, X, RefreshCw, ClipboardList } from 'lucide-react';
 import Image from 'next/image';
 import ProfileEditor from '@/components/profile-editor';
 import { VisualProfileEditor } from '@/components/visual-profile-editor';
@@ -9,26 +9,27 @@ import PressureChart from '@/components/pressure-chart';
 import CalibrationPanel from '@/components/calibration-panel';
 import ProfileSimulatorChartJS from '@/components/profile-simulator-chartjs';
 import BluetoothSettings from '@/components/bluetooth-settings';
-import { LiveBrewChart } from '@/components/live-brew-chart';
+import BrewLog from '@/components/brew-log';
 import { Profile } from '@/types';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import { predefinedProfiles } from '@/data/default-profiles';
 import { useWebBluetooth } from '@/hooks/use-web-bluetooth';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'brew' | 'profiles' | 'calibration' | 'settings'>('brew');
+  const [activeTab, setActiveTab] = useState<'brew' | 'profiles' | 'brew-log' | 'calibration' | 'settings'>('brew');
   const [showEditor, setShowEditor] = useState(false);
   const [showVisualEditor, setShowVisualEditor] = useState(false);
   const [editingProfile, setEditingProfile] = useState<Profile | undefined>();
   const [simulatingProfile, setSimulatingProfile] = useState<Profile | null>(null);
   const [isMounted, setIsMounted] = useState(false);
   const [selectedBrewProfile, setSelectedBrewProfile] = useState<string>('');
+  const [showPairingModal, setShowPairingModal] = useState(false);
   
   // Use Web Bluetooth hook at top level to maintain connection across tab switches
   const bluetoothHook = useWebBluetooth();
   const bluetoothConnected = bluetoothHook.isConnected;
   const esp32Status = bluetoothHook.status;
-  const liveBrewData = bluetoothHook.liveBrewData || [];
+  const activeProfile = bluetoothHook.activeProfile;
 
   React.useEffect(() => {
     setIsMounted(true);
@@ -52,22 +53,53 @@ export default function Home() {
   // Default profiles for hardware buttons
   const [defaultProfile1, setDefaultProfile1] = useLocalStorage<string>('modspresso-default-profile-1', '');
   const [defaultProfile2, setDefaultProfile2] = useLocalStorage<string>('modspresso-default-profile-2', '');
+  const [esp32ProfileMap, setEsp32ProfileMap] = useLocalStorage<Record<string, string>>('modspresso-esp32-profile-map', {});
 
-  // Auto-select running profile when it starts via button
+  // Auto-select running profile when it starts (from button or dropdown)
   const isRunningGlobal = esp32Status?.is_running || false;
-  const runningProfileGlobal = isRunningGlobal 
-    ? profiles.find(p => {
-        const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
-        const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
-        return isDefault1 || isDefault2;
-      })
-    : null;
+  
+  const findProfileByName = useCallback((name?: string | null) => {
+    if (!name) return null;
+    const normalized = name.trim().toLowerCase();
+    const truncated = normalized.substring(0, 15);
+    return profiles.find(profile => {
+      const candidate = profile.name.trim().toLowerCase();
+      if (candidate === normalized) return true;
+      return candidate.substring(0, 15) === truncated;
+    }) || null;
+  }, [profiles]);
+
+  const esp32IdByLocalId = useMemo(() => {
+    const map: Record<string, number> = {};
+    Object.entries(esp32ProfileMap).forEach(([esp32Id, localId]) => {
+      if (localId) {
+        const idNumber = Number(esp32Id);
+        if (!Number.isNaN(idNumber)) {
+          map[localId] = idNumber;
+        }
+      }
+    });
+    return map;
+  }, [esp32ProfileMap]);
+
+  const localProfileByEsp32Id = useCallback((esp32Id?: number | null) => {
+    if (esp32Id == null) return null;
+    const localId = esp32ProfileMap[String(esp32Id)];
+    if (!localId) return null;
+    return profiles.find(profile => profile.id === localId) || null;
+  }, [esp32ProfileMap, profiles]);
 
   React.useEffect(() => {
-    if (isRunningGlobal && runningProfileGlobal && (!selectedBrewProfile || selectedBrewProfile !== runningProfileGlobal.id)) {
-      setSelectedBrewProfile(runningProfileGlobal.id);
+    if (isRunningGlobal && activeProfile) {
+      const matchingProfile = activeProfile.id != null
+        ? localProfileByEsp32Id(activeProfile.id)
+        : findProfileByName(activeProfile.name);
+      if (matchingProfile && (!selectedBrewProfile || selectedBrewProfile !== matchingProfile.id)) {
+        console.log('Auto-selecting running profile:', matchingProfile.name, matchingProfile.id);
+        setSelectedBrewProfile(matchingProfile.id);
+      }
     }
-  }, [isRunningGlobal, runningProfileGlobal?.id, selectedBrewProfile]);
+  }, [isRunningGlobal, activeProfile?.id, activeProfile?.name, selectedBrewProfile, localProfileByEsp32Id, findProfileByName]);
 
   const handleSaveProfile = (profile: Profile) => {
     if (editingProfile) {
@@ -154,25 +186,17 @@ export default function Home() {
       }
     }
     
+    // Set the selected profile immediately so it shows in the UI
+    setSelectedBrewProfile(profile.id);
+    
     try {
-      // Check if profile is assigned to a button - if so, we know the ESP32 ID
-      // Profiles assigned to button 1 get ID 1, button 2 gets ID 2 on ESP32
-      let esp32ProfileId: number | null = null;
-      if (profile.id === defaultProfile1) {
-        esp32ProfileId = 1; // Button 1 profiles get ID 1 on ESP32
-      } else if (profile.id === defaultProfile2) {
-        esp32ProfileId = 2; // Button 2 profiles get ID 2 on ESP32
-      }
-      
-      // Also check if this profile was synced with a specific ID
-      // We need to search through synced profiles to find the ESP32 ID
-      // For now, try to use button-assigned IDs, or send full profile if not synced
-      
-      if (esp32ProfileId !== null) {
-        // Profile is assigned to a button - try to start by ID first (more efficient)
+    // If profile is synced, start by ESP32 ID
+    const esp32ProfileId = esp32IdByLocalId[profile.id];
+    if (esp32ProfileId != null) {
+      // Profile is synced - try to start by ID first (more efficient)
         // If that fails (profile not synced), fall back to sending full profile
         try {
-          console.log(`Starting button-assigned profile by ID: ${profile.name} (ESP32 ID: ${esp32ProfileId})`);
+        console.log(`Starting synced profile by ID: ${profile.name} (ESP32 ID: ${esp32ProfileId})`);
           await bluetoothHook.startProfileById(esp32ProfileId);
         } catch (error) {
           console.warn('Failed to start by ID, sending full profile instead:', error);
@@ -194,7 +218,7 @@ export default function Home() {
       console.error('Error starting profile:', error);
       alert('Feil ved start av profil. Sjekk Serial Monitor for detaljer.');
     }
-  }, [bluetoothHook, esp32Status, defaultProfile1, defaultProfile2]);
+  }, [bluetoothHook, esp32Status, esp32IdByLocalId]);
 
   const handleSyncProfiles = async () => {
     if (!bluetoothHook.isConnected) {
@@ -215,6 +239,11 @@ export default function Home() {
     );
     
     try {
+      const newMap: Record<string, string> = {};
+      const saveMapping = (esp32Id: number, profileId: string) => {
+        newMap[String(esp32Id)] = profileId;
+      };
+
       // Clear all profiles on ESP32 if user requested
       if (clearFirst) {
         await bluetoothHook.clearAllProfiles();
@@ -230,6 +259,7 @@ export default function Home() {
             name: profile1.name,
             segments: profile1.segments
           });
+          saveMapping(1, profile1.id);
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
@@ -242,6 +272,7 @@ export default function Home() {
             name: profile2.name,
             segments: profile2.segments
           });
+          saveMapping(2, profile2.id);
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
@@ -268,6 +299,7 @@ export default function Home() {
           name: profile.name,
           segments: profile.segments
         });
+        saveMapping(esp32Id, profile.id);
         // Small delay between profiles
         await new Promise(resolve => setTimeout(resolve, 100));
         esp32Id++;
@@ -281,6 +313,8 @@ export default function Home() {
       if (defaultProfile2) {
         await bluetoothHook.setDefaultProfileForButton(2, 2);
       }
+
+      setEsp32ProfileMap(newMap);
       
       alert(`✅ Synkronisert ${profiles.length} profiler til ESP32!\n\nProfiler tilegnet knapp 1 og 2 har fått ID 1 og 2 på ESP32.`);
     } catch (error) {
@@ -568,21 +602,50 @@ export default function Home() {
   const renderBrewTab = () => {
     // Find currently running profile
     const isRunning = esp32Status?.is_running || false;
-    const runningProfile = isRunning 
-      ? profiles.find(p => {
-          const isDefault1 = defaultProfile1 && p.id === defaultProfile1;
-          const isDefault2 = defaultProfile2 && p.id === defaultProfile2;
-          return isDefault1 || isDefault2;
-        })
-      : null;
-
+    
     // Determine which profile to display in the chart
-    // If running, use the running profile; otherwise use selected profile
-    const displayedProfile = isRunning && runningProfile 
-      ? runningProfile 
-      : selectedBrewProfile 
-        ? profiles.find(p => p.id === selectedBrewProfile) || null
-        : null;
+    // Priority:
+    // 1. If running, use ESP32 profile_id mapping when available
+    // 2. Fallback to name matching (ESP32 truncation)
+    // 3. Otherwise show selected profile from dropdown
+    let displayedProfile: Profile | null = null;
+
+    if (isRunning) {
+      if (activeProfile?.id != null) {
+        displayedProfile = localProfileByEsp32Id(activeProfile.id);
+      }
+
+      if (!displayedProfile && activeProfile?.name) {
+        displayedProfile = findProfileByName(activeProfile.name);
+      }
+
+      if (!displayedProfile && selectedBrewProfile && activeProfile?.id == null) {
+        displayedProfile = profiles.find(p => p.id === selectedBrewProfile) || null;
+      }
+    } else if (selectedBrewProfile) {
+      // Profile selected but not running - show selected profile
+      displayedProfile = profiles.find(p => p.id === selectedBrewProfile) || null;
+    }
+    
+    console.log('📊 Final displayedProfile:', displayedProfile?.name || 'null');
+
+    const runningProfileName = (() => {
+      if (displayedProfile?.name) return displayedProfile.name;
+      if (activeProfile?.id != null) {
+        const mappedProfile = localProfileByEsp32Id(activeProfile.id);
+        if (mappedProfile?.name) return mappedProfile.name;
+      }
+      if (activeProfile?.name) return activeProfile.name;
+      if (activeProfile?.id != null && esp32Status) {
+        if (esp32Status.default_profile1 === activeProfile.id && esp32Status.default_profile1_name) {
+          return esp32Status.default_profile1_name;
+        }
+        if (esp32Status.default_profile2 === activeProfile.id && esp32Status.default_profile2_name) {
+          return esp32Status.default_profile2_name;
+        }
+      }
+      return 'Loading...';
+    })();
 
     return (
       <div className="space-y-6">
@@ -599,17 +662,23 @@ export default function Home() {
                   </label>
                   <select
                     id="profile-select"
-                    value={displayedProfile?.id || ''}
+                    value={selectedBrewProfile || ''}
                     onChange={(e) => {
                       const profileId = e.target.value;
+                      // Don't allow changing profile while running
+                      if (isRunning && activeProfile) {
+                        return;
+                      }
                       setSelectedBrewProfile(profileId);
                       // Stop current profile if selecting a new one
                       if (isRunning && bluetoothHook.isConnected) {
                         bluetoothHook.stopProfile();
                       }
                     }}
-                    className="px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                    disabled={isRunning || !isMounted}
+                    className={`px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      isRunning && activeProfile !== null ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+                    }`}
+                    disabled={!isMounted}
                   >
                     <option value="">-- Velg profil --</option>
                     {isMounted && profiles.map((profile) => (
@@ -668,24 +737,37 @@ export default function Home() {
             )}
           </div>
 
-          {/* Large chart - shows live data when running, target curve when not */}
-          {displayedProfile ? (
+          {/* Large chart - keep static profile curve and add a moving marker when running */}
+          {isRunning ? (
             <div>
-              {isRunning ? (
-                <LiveBrewChart 
-                  profile={displayedProfile}
-                  liveData={liveBrewData}
-                  isRunning={true}
+              {/* Always show "Now Brewing" when running, even if we don't have the profile yet */}
+              <div className="mb-3 flex items-center justify-center">
+                <span className="text-lg font-semibold text-gray-800">
+                  Now Brewing: <span className="text-blue-600">
+                    {runningProfileName}
+                  </span>
+                </span>
+              </div>
+              {displayedProfile ? (
+                <PressureChart
+                  segments={displayedProfile.segments}
                   height={500}
+                  showArea={true}
+                  markerStartAt={bluetoothHook.brewStartAt}
+                  isRunning={true}
                 />
               ) : (
-                <div>
-                  <div className="mb-2 text-sm text-gray-600">
-                    Målprofil: {displayedProfile.name}
-                  </div>
-                  <PressureChart segments={displayedProfile.segments} height={500} showArea={true} />
+                <div className="flex items-center justify-center" style={{ height: 500 }}>
+                  <span className="text-gray-500">Waiting for profile information...</span>
                 </div>
               )}
+            </div>
+          ) : displayedProfile ? (
+            <div>
+              <div className="mb-2 text-sm text-gray-600">
+                Målprofil: {displayedProfile.name}
+              </div>
+              <PressureChart segments={displayedProfile.segments} height={500} showArea={true} />
             </div>
           ) : (
             <div className="flex items-center justify-center border-2 border-dashed border-gray-300 rounded-lg" style={{ height: 500 }}>
@@ -695,8 +777,8 @@ export default function Home() {
                 <p className="text-gray-600">Velg en profil fra nedtrekksmenyen for å starte brygging</p>
               </div>
             </div>
-          )}
-        </div>
+        )}
+      </div>
 
         {/* Info section */}
         {!isMounted ? (
@@ -795,6 +877,10 @@ export default function Home() {
     <CalibrationPanel onComplete={handleCalibrationComplete} bluetoothHook={bluetoothHook} />
   );
 
+  const renderBrewLogTab = () => (
+    <BrewLog />
+  );
+
   const renderSettingsTab = () => (
     <BluetoothSettings onConnectionChange={() => {/* Connection state is managed by hook */}} bluetoothHook={bluetoothHook} />
   );
@@ -810,10 +896,18 @@ export default function Home() {
               <h1 className="text-xl font-bold text-gray-900">Modspresso</h1>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="flex items-center text-sm text-gray-500">
+              <button
+                onClick={() => !bluetoothConnected && setShowPairingModal(true)}
+                className={`flex items-center text-sm transition-colors ${
+                  bluetoothConnected 
+                    ? 'text-gray-500 cursor-default' 
+                    : 'text-gray-500 hover:text-gray-700 cursor-pointer'
+                }`}
+                disabled={bluetoothConnected}
+              >
                 <div className={`w-2 h-2 rounded-full mr-2 ${bluetoothConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
                 {bluetoothConnected ? 'ESP32 tilkoblet' : 'Ikke tilkoblet'}
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -844,6 +938,17 @@ export default function Home() {
             >
               <BarChart3 className="mr-2 h-5 w-5" />
               Profiler
+            </button>
+            <button
+              onClick={() => setActiveTab('brew-log')}
+              className={`flex items-center py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'brew-log'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <ClipboardList className="mr-2 h-5 w-5" />
+              Brew Log
             </button>
             <button
               onClick={() => setActiveTab('calibration')}
@@ -895,6 +1000,7 @@ export default function Home() {
           <>
             {activeTab === 'brew' && renderBrewTab()}
             {activeTab === 'profiles' && renderProfilesTab()}
+            {activeTab === 'brew-log' && renderBrewLogTab()}
             {activeTab === 'calibration' && renderCalibrationTab()}
             {activeTab === 'settings' && renderSettingsTab()}
           </>
@@ -918,6 +1024,90 @@ export default function Home() {
                 </button>
               </div>
               <ProfileSimulatorChartJS profile={simulatingProfile} height={400} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pairing Modal */}
+      {showPairingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold text-gray-800">Koble til ESP32</h2>
+                <button
+                  onClick={() => setShowPairingModal(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Klikk på &quot;Pair&quot; for å søke etter og koble til ESP32-enheten din.
+                </p>
+                
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${bluetoothHook.isScanning ? 'bg-blue-500 animate-pulse' : bluetoothConnected ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                  <span className="text-sm text-gray-600">
+                    {bluetoothHook.isScanning 
+                      ? 'Søker etter enheter...' 
+                      : bluetoothConnected 
+                        ? 'Tilkoblet' 
+                        : 'Ikke tilkoblet'}
+                  </span>
+                </div>
+
+                {bluetoothHook.error && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                    <p className="text-sm text-red-700">{bluetoothHook.error}</p>
+                  </div>
+                )}
+
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    onClick={async () => {
+                      try {
+                        // Scan and pair (this opens browser pairing dialog)
+                        const devices = await bluetoothHook.scanForDevices();
+                        if (devices.length > 0) {
+                          // Automatically connect to the paired device
+                          const success = await bluetoothHook.connectToDevice();
+                          if (success) {
+                            // Get initial status
+                            await bluetoothHook.getStatus();
+                            // Close modal on success
+                            setShowPairingModal(false);
+                          }
+                        }
+                      } catch (error) {
+                        console.error('Pairing error:', error);
+                        // Error is already set in bluetoothHook.error
+                      }
+                    }}
+                    disabled={bluetoothHook.isScanning || bluetoothConnected || !bluetoothHook.isSupported}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                  >
+                    {bluetoothHook.isScanning ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Søker...</span>
+                      </>
+                    ) : (
+                      <span>Pair</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setShowPairingModal(false)}
+                    disabled={bluetoothHook.isScanning}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Avbryt
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

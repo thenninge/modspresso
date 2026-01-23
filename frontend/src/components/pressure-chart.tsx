@@ -10,7 +10,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   Area,
-  AreaChart
+  AreaChart,
+  ReferenceLine
 } from 'recharts';
 import { ProfileSegment } from '@/types';
 
@@ -20,6 +21,8 @@ interface PressureChartProps {
   height?: number;
   showArea?: boolean;
   className?: string;
+  markerStartAt?: number | null;
+  isRunning?: boolean;
 }
 
 // Convert segments to chart data points
@@ -67,13 +70,32 @@ const PressureChartComponent: React.FC<PressureChartProps> = ({
   width = 600,
   height = 400,
   showArea = true,
-  className = ''
+  className = '',
+  markerStartAt = null,
+  isRunning = false
 }) => {
   const [isMounted, setIsMounted] = React.useState(false);
+  const [markerTime, setMarkerTime] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  React.useEffect(() => {
+    if (!isRunning || !markerStartAt) {
+      setMarkerTime(null);
+      return;
+    }
+
+    const updateMarker = () => {
+      const elapsedSeconds = (Date.now() - markerStartAt) / 1000;
+      setMarkerTime(elapsedSeconds);
+    };
+
+    updateMarker();
+    const timer = setInterval(updateMarker, 200);
+    return () => clearInterval(timer);
+  }, [isRunning, markerStartAt]);
 
   // Memoize chart data to prevent unnecessary recalculations
   const chartData = React.useMemo(() => {
@@ -117,6 +139,7 @@ const PressureChartComponent: React.FC<PressureChartProps> = ({
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis 
               dataKey="time" 
+              type="number"
               label={{ value: 'Tid (sekunder)', position: 'insideBottom', offset: -10 }}
               domain={[0, maxTime]}
               tickFormatter={tickFormatter}
@@ -126,6 +149,14 @@ const PressureChartComponent: React.FC<PressureChartProps> = ({
               domain={[0, 9]}
             />
             <Tooltip content={<CustomTooltip />} />
+            {markerTime != null && (
+              <ReferenceLine
+                x={Math.max(0, Math.min(markerTime, maxTime))}
+                stroke="#f97316"
+                strokeDasharray="4 4"
+                label={{ value: 'Nå', position: 'insideTopRight', fill: '#f97316' }}
+              />
+            )}
             <Area 
               type="monotone" 
               dataKey="pressure" 
@@ -140,6 +171,7 @@ const PressureChartComponent: React.FC<PressureChartProps> = ({
             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
             <XAxis 
               dataKey="time" 
+              type="number"
               label={{ value: 'Tid (sekunder)', position: 'insideBottom', offset: -10 }}
               domain={[0, maxTime]}
               tickFormatter={tickFormatter}
@@ -149,6 +181,14 @@ const PressureChartComponent: React.FC<PressureChartProps> = ({
               domain={[0, 9]}
             />
             <Tooltip content={<CustomTooltip />} />
+            {markerTime != null && (
+              <ReferenceLine
+                x={Math.max(0, Math.min(markerTime, maxTime))}
+                stroke="#f97316"
+                strokeDasharray="4 4"
+                label={{ value: 'Nå', position: 'insideTopRight', fill: '#f97316' }}
+              />
+            )}
             <Line 
               type="monotone" 
               dataKey="pressure" 
@@ -189,7 +229,9 @@ const PressureChart = React.memo(PressureChartComponent, (prevProps, nextProps) 
     prevProps.width !== nextProps.width ||
     prevProps.height !== nextProps.height ||
     prevProps.showArea !== nextProps.showArea ||
-    prevProps.className !== nextProps.className
+    prevProps.className !== nextProps.className ||
+    prevProps.markerStartAt !== nextProps.markerStartAt ||
+    prevProps.isRunning !== nextProps.isRunning
   ) {
     return false; // Re-render if other props changed
   }

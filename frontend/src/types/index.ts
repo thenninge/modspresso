@@ -71,3 +71,19 @@ export interface WebSocketEvents {
   'pressure-update': { pressure: number; timestamp: string };
   'status-update': ESP32Status;
 }
+
+// Brew log types
+export interface BrewLogEntry {
+  id: string;
+  date: string;
+  beanType: string;
+  grindSize: string;
+  nextGrindSize: string;
+  gramsIn: number | null;
+  gramsOut: number | null;
+  brewTimeSeconds: number | null;
+  grade: number | null;
+  notes: string;
+  createdAt: string;
+  updatedAt?: string;
+}

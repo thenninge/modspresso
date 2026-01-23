@@ -9,7 +9,8 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend
+  Legend,
+  ReferenceLine
 } from 'recharts';
 import type { Profile, ProfileSegment } from '@/types';
 import type { LiveBrewData } from '@/hooks/use-web-bluetooth';
@@ -18,6 +19,8 @@ interface LiveBrewChartProps {
   profile: Profile;
   liveData: LiveBrewData[] | null | undefined;
   isRunning: boolean;
+  simulateFrom?: number | null;
+  preferSimulation?: boolean;
   height?: number;
 }
 
@@ -41,6 +44,18 @@ const generateTargetCurve = (segments: ProfileSegment[], maxTime: number) => {
   }
   
   return data;
+};
+
+const getPressureAtTime = (segments: ProfileSegment[], time: number) => {
+  for (const segment of segments) {
+    if (time >= segment.startTime && time <= segment.endTime) {
+      const duration = segment.endTime - segment.startTime;
+      if (duration <= 0) return segment.endPressure;
+      const progress = (time - segment.startTime) / duration;
+      return segment.startPressure + (segment.endPressure - segment.startPressure) * progress;
+    }
+  }
+  return segments.length ? segments[segments.length - 1].endPressure : 0;
 };
 
 // Custom tooltip
@@ -71,13 +86,30 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
   profile,
   liveData = [],
   isRunning,
+  simulateFrom,
+  preferSimulation = false,
   height = 400
 }) => {
   const [isMounted, setIsMounted] = React.useState(false);
+  const [simulationNow, setSimulationNow] = React.useState<number | null>(null);
 
   React.useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  React.useEffect(() => {
+    if (!isRunning || !simulateFrom) {
+      setSimulationNow(null);
+      return;
+    }
+
+    setSimulationNow(Date.now());
+    const timer = setInterval(() => {
+      setSimulationNow(Date.now());
+    }, 500);
+
+    return () => clearInterval(timer);
+  }, [isRunning, simulateFrom]);
 
   // Calculate max time from profile
   const maxTime = React.useMemo(() => {
@@ -91,9 +123,46 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
     return generateTargetCurve(profile.segments, maxTime);
   }, [profile?.segments, maxTime]);
 
+  const simulatedLiveData = React.useMemo(() => {
+    if (!isRunning || !simulateFrom || !profile?.segments || profile.segments.length === 0) {
+      return [];
+    }
+
+    if (!preferSimulation && liveData && Array.isArray(liveData) && liveData.length > 0) {
+      return [];
+    }
+
+    const elapsedSeconds = Math.max(0, ((simulationNow ?? Date.now()) - simulateFrom) / 1000);
+    const maxSimulatedTime = Math.min(elapsedSeconds, maxTime);
+    const step = 0.5;
+    const points: LiveBrewData[] = [];
+
+    for (let t = 0; t <= maxSimulatedTime; t += step) {
+      const target = getPressureAtTime(profile.segments, t);
+      points.push({
+        time: Number(t.toFixed(1)),
+        current_pressure: target,
+        target_pressure: target,
+        timestamp: simulateFrom + t * 1000
+      });
+    }
+
+    return points;
+  }, [isRunning, simulateFrom, simulationNow, profile, liveData, maxTime, preferSimulation]);
+
+  const currentTime = React.useMemo(() => {
+    if (!isRunning || !simulateFrom) return null;
+    const elapsedSeconds = ((simulationNow ?? Date.now()) - simulateFrom) / 1000;
+    return Math.max(0, Math.min(elapsedSeconds, maxTime));
+  }, [isRunning, simulateFrom, simulationNow, maxTime]);
+
   // Combine target curve with live data for display
   const chartData = React.useMemo(() => {
-    if (!liveData || !Array.isArray(liveData) || liveData.length === 0) {
+    const effectiveLiveData = (!preferSimulation && liveData && Array.isArray(liveData) && liveData.length > 0)
+      ? liveData
+      : simulatedLiveData;
+
+    if (!effectiveLiveData || !Array.isArray(effectiveLiveData) || effectiveLiveData.length === 0) {
       // If no live data, just show target curve
       return targetCurve.map(targetPoint => ({
         time: targetPoint.time,
@@ -105,7 +174,7 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
 
     // Create a map of live data points by time
     const liveMap = new Map<number, LiveBrewData>();
-    liveData.forEach(point => {
+    effectiveLiveData.forEach(point => {
       if (point && typeof point.time === 'number') {
         const roundedTime = Math.round(point.time * 2) / 2; // Round to 0.5s
         if (!liveMap.has(roundedTime) || (liveMap.get(roundedTime)?.timestamp || 0) < (point.timestamp || 0)) {
@@ -124,7 +193,7 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
         target_pressure: livePoint ? (livePoint.target_pressure || null) : null
       };
     });
-  }, [targetCurve, liveData]);
+  }, [targetCurve, liveData, simulatedLiveData, preferSimulation]);
 
   if (!isMounted) {
     return (
@@ -171,6 +240,9 @@ export const LiveBrewChart: React.FC<LiveBrewChartProps> = ({
           />
           <Tooltip content={<CustomTooltip />} />
           <Legend />
+          {currentTime != null && (
+            <ReferenceLine x={currentTime} stroke="#f97316" strokeDasharray="4 4" label={{ value: 'Nå', position: 'insideTopRight', fill: '#f97316' }} />
+          )}
           <Line 
             type="monotone" 
             dataKey="target" 

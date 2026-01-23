@@ -133,6 +133,8 @@ export const useWebBluetooth = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [serialLogs, setSerialLogs] = useState<SerialLogEntry[]>([]);
   const [liveBrewData, setLiveBrewData] = useState<LiveBrewData[]>([]);
+  const [activeProfile, setActiveProfile] = useState<{ id?: number; name: string } | null>(null);
+  const [brewStartAt, setBrewStartAt] = useState<number | null>(null);
 
   const deviceRef = useRef<BluetoothDevice | null>(null);
   const serverRef = useRef<BluetoothRemoteGATTServer | null>(null);
@@ -239,7 +241,10 @@ export const useWebBluetooth = () => {
           console.log('Received BLE message:', jsonString); // Debug logging
           try {
             const data = JSON.parse(jsonString);
-            console.log('Parsed data:', data); // Debug logging
+            console.log('📨 Parsed data:', data); // Debug logging
+            console.log('📨 Data keys:', Object.keys(data)); // Debug logging
+            console.log('📨 data.type:', data.type, 'data.status:', data.status); // Debug logging
+            
             if (data.type === 'status_update') {
               // Extract only the status fields (exclude 'type')
               const statusData: ESP32Status = {
@@ -282,8 +287,24 @@ export const useWebBluetooth = () => {
                 // Keep last 1000 data points (about 16 minutes at 1 update/second)
                 return newData.slice(-1000);
               });
+            } else if (data.status === 'profile_started') {
+              // Profile started - store the profile name and ID for tracking
+              // This is the authoritative source for which profile is currently running
+              console.log('✅ Profile started message received! Full data:', data);
+              console.log('✅ Profile name:', data.profile_name, 'ID:', data.profile_id);
+              
+              setBrewStartAt(Date.now());
+              if (data.profile_name) {
+                setActiveProfile({
+                  id: data.profile_id,
+                  name: data.profile_name
+                });
+                console.log('✅ activeProfile state updated to:', { id: data.profile_id, name: data.profile_name });
+              } else {
+                console.warn('⚠️ profile_started message received but profile_name is missing!');
+              }
             } else {
-              console.log('Unknown message type:', data.type); // Debug logging
+              console.log('📨 Unknown message type:', data.type || data.status, 'Full data:', data); // Debug logging
             }
           } catch (err) {
             console.error('Failed to parse ESP32 message:', err, 'Raw:', jsonString);
@@ -528,14 +549,19 @@ export const useWebBluetooth = () => {
     });
   }, [sendCommand]);
 
-  // Clear live brew data when profile stops
+  // Clear live brew data and active profile when profile stops
   useEffect(() => {
-    if (status && !status.is_running && liveBrewData.length > 0) {
-      // Profile stopped - keep data for a bit, then clear after 5 seconds
-      const timer = setTimeout(() => {
-        setLiveBrewData([]);
-      }, 5000);
-      return () => clearTimeout(timer);
+    if (status && !status.is_running) {
+      // Profile stopped - clear active profile immediately
+      setActiveProfile(null);
+      setBrewStartAt(null);
+      // Keep live data for a bit, then clear after 5 seconds
+      if (liveBrewData.length > 0) {
+        const timer = setTimeout(() => {
+          setLiveBrewData([]);
+        }, 5000);
+        return () => clearTimeout(timer);
+      }
     }
   }, [status, liveBrewData.length]);
 
@@ -549,6 +575,8 @@ export const useWebBluetooth = () => {
     isScanning,
     serialLogs,
     liveBrewData,
+    activeProfile,
+    brewStartAt,
     
     // Actions
     scanForDevices,
