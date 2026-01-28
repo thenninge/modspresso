@@ -100,6 +100,16 @@ rbdimmer_channel_t* dimmer_channel = NULL;  // Dimmer channel object
 // IMPORTANT: Set back to false when using with real pump in loop!
 bool useSimplePWMTest = false;  // Can be set via serial command "set_pwm_test_mode"
 
+// Dimmer OFF state: When true, dimmer is completely off (no pulses, pin held LOW)
+// OFF MODE behavior:
+//   - No pulses are sent on DIM pin
+//   - DIM pin is held LOW via digitalWrite()
+//   - For simple PWM: PWM is detached (ledcDetachPin)
+//   - For RBDimmer: Level is set to 0, then pin is manually held LOW
+//   - In zero-cross ISR (handled by RBDimmer): When level is 0, no pulses should be generated
+//   - When level > 0: dimmerOff = false, PWM/RBDimmer takes control
+bool dimmerOff = true;  // Start in OFF state
+
 // Preferences for non-volatile storage (NVS)
 Preferences preferences;
 
@@ -165,6 +175,13 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Starting Espresso Profiler ESP32...");
 
+  // CRITICAL: Initialize DIM pin FIRST, before anything else
+  // This ensures the pin is LOW and no pulses are sent when system starts
+  pinMode(DIMMER_PIN, OUTPUT);
+  digitalWrite(DIMMER_PIN, LOW);
+  dimmerOff = true;  // Start in OFF state (no pulses)
+  Serial.println("DIM pin initialized: GPIO" + String(DIMMER_PIN) + " set to LOW (OFF mode)");
+
   // Initialize Preferences (NVS) for persistent storage
   preferences.begin("modspresso", false);  // false = read-write mode
   Serial.println("NVS (Preferences) initialized");
@@ -197,6 +214,7 @@ void setup() {
   Serial.println("  Button2: " + String(lastButton2State == LOW ? "LOW (pressed)" : "HIGH (not pressed)"));
 
   // Initialize dimmer - either simple PWM test mode or RBDimmer library
+  // Note: DIM pin is already set to LOW in OFF mode at the start of setup()
   if (useSimplePWMTest) {
     // SIMPLE PWM TEST MODE: Direct PWM output for testing dimmer LED
     // WARNING: This is ONLY for testing - NOT for real pump operation!
@@ -209,16 +227,17 @@ void setup() {
     Serial.println("========================================");
     sendLogMessage("SIMPLE PWM TEST MODE ENABLED - RBDimmer disabled", "warn");
     
-    // Setup PWM channel for dimmer pin
+    // Setup PWM channel for dimmer pin (but don't attach yet - pin stays LOW in OFF mode)
     ledcSetup(0, 5000, 8);  // Channel 0, 5kHz frequency, 8-bit resolution (0-255)
-    ledcAttachPin(DIMMER_PIN, 0);  // Attach GPIO25 to channel 0
-    ledcWrite(0, 0);  // Start with 0 (off)
+    // Note: Pin is NOT attached here - it will be attached when level > 0
+    // Pin remains LOW (OFF mode) until setDimLevel() is called with level > 0
     
-    Serial.println("Simple PWM initialized on GPIO" + String(DIMMER_PIN));
+    Serial.println("Simple PWM channel configured (pin stays LOW in OFF mode until level > 0)");
     Serial.println("  PWM channel: 0");
     Serial.println("  Frequency: 5kHz");
     Serial.println("  Resolution: 8-bit (0-255)");
-    sendLogMessage("Simple PWM initialized for testing", "info");
+    Serial.println("  Pin GPIO" + String(DIMMER_PIN) + " is LOW (OFF mode)");
+    sendLogMessage("Simple PWM initialized for testing (OFF mode)", "info");
   } else {
     // NORMAL MODE: Use RBDimmer library for proper zero-cross detection
     Serial.println("Initializing RBDimmer library...");
@@ -368,6 +387,12 @@ void loop() {
   // Handle profile execution
   if (isRunning) {
     executeProfile();
+  } else {
+    // Ensure dimmer is in OFF mode when no profile is running
+    // This prevents lights from staying on when buttons are in off position
+    if (!dimmerOff) {
+      setDimLevel(0);  // This will set dimmerOff = true and hold pin LOW
+    }
   }
 
   // Check hardware buttons
@@ -615,24 +640,37 @@ void handleCommand(const char* command) {
   } else if (cmd == "set_pwm_test_mode") {
     // Toggle simple PWM test mode (for testing dimmer LED)
     bool enable = doc["enable"] | false;
+    
+    // First, ensure dimmer is in OFF mode before switching modes
+    setDimLevel(0);  // This will set dimmerOff = true and hold pin LOW
+    
     useSimplePWMTest = enable;
     
     if (useSimplePWMTest) {
-      // Initialize simple PWM if not already done
+      // Initialize simple PWM channel (but don't attach - pin stays LOW in OFF mode)
       ledcSetup(0, 5000, 8);  // Channel 0, 5kHz frequency, 8-bit resolution (0-255)
-      ledcAttachPin(DIMMER_PIN, 0);  // Attach GPIO25 to channel 0
-      ledcWrite(0, 0);  // Start with 0 (off)
+      // Pin is NOT attached here - it will be attached when setDimLevel() is called with level > 0
+      // Pin remains LOW (OFF mode)
       
-      String logMsg = "Simple PWM test mode ENABLED (RBDimmer disabled)";
+      String logMsg = "Simple PWM test mode ENABLED (RBDimmer disabled, pin LOW in OFF mode)";
       Serial.println("========================================");
       Serial.println(logMsg);
       Serial.println("  WARNING: This is ONLY for testing dimmer LED!");
       Serial.println("  Set back to false for real pump operation!");
       Serial.println("  Send: {\"command\":\"set_pwm_test_mode\",\"enable\":false}");
+      Serial.println("  Pin GPIO" + String(DIMMER_PIN) + " is LOW (OFF mode - no pulses)");
       Serial.println("========================================");
       sendLogMessage(logMsg.c_str(), "warn");
     } else {
-      String logMsg = "Simple PWM test mode DISABLED (RBDimmer enabled)";
+      // When disabling simple PWM, ensure pin is LOW and detached
+      ledcDetachPin(DIMMER_PIN);  // Detach PWM
+      digitalWrite(DIMMER_PIN, LOW);  // Hold pin LOW
+      dimmerOff = true;  // Ensure OFF mode
+      
+      // Note: RBDimmer will need to be re-initialized if it was used before
+      // For now, we just ensure the pin is LOW
+      
+      String logMsg = "Simple PWM test mode DISABLED (pin LOW in OFF mode)";
       Serial.println(logMsg);
       sendLogMessage(logMsg.c_str(), "info");
     }
@@ -941,39 +979,87 @@ void setDimLevel(int level) {
   // Clamp level between 0 and 100
   level = constrain(level, 0, 100);
   
-  if (useSimplePWMTest) {
-    // SIMPLE PWM TEST MODE: Direct PWM output for testing dimmer LED
-    // Map 0-100% to 0-255 PWM value
-  int pwmValue = map(level, 0, 100, 0, 255);
-    ledcWrite(0, pwmValue);  // Write PWM to channel 0 (GPIO25)
+  if (level == 0) {
+    // OFF MODE: No pulses, pin held LOW
+    dimmerOff = true;
     
-    String logMsg = "Dim level set to: " + String(level) + "% (Simple PWM test mode, PWM value: " + String(pwmValue) + "/255)";
-    Serial.println(logMsg);
-    sendLogMessage(logMsg.c_str(), "info");
-  } else {
-    // NORMAL MODE: Use RBDimmer library (handles zero-cross and phase-angle control automatically)
-    if (dimmer_channel != NULL) {
-      rbdimmer_err_t result = rbdimmer_set_level(dimmer_channel, level);
-      if (result == RBDIMMER_OK) {
-        String logMsg = "Dim level set to: " + String(level) + "% (RBDimmer controlled";
+    if (useSimplePWMTest) {
+      // SIMPLE PWM TEST MODE: Detach PWM and set pin LOW
+      ledcDetachPin(DIMMER_PIN);  // Stop PWM output
+      digitalWrite(DIMMER_PIN, LOW);  // Explicitly hold pin LOW (no pulses)
+      
+      String logMsg = "Dim level set to 0% - OFF mode (Simple PWM detached, pin LOW)";
+      Serial.println(logMsg);
+      sendLogMessage(logMsg.c_str(), "info");
+    } else {
+      // NORMAL MODE: Set RBDimmer to 0, then manually hold pin LOW
+      if (dimmer_channel != NULL) {
+        // Set RBDimmer level to 0 first
+        rbdimmer_set_level(dimmer_channel, 0);
+        // Then manually hold pin LOW to ensure no pulses
+        // Note: RBDimmer's ISR should not fire pulses when level is 0,
+        // but we explicitly hold pin LOW as a safety measure
+        digitalWrite(DIMMER_PIN, LOW);
+        
+        String logMsg = "Dim level set to 0% - OFF mode (RBDimmer level 0, pin held LOW)";
         if (!REQUIRE_ZERO_CROSS) {
-          logMsg += ", TESTING MODE - zero-cross disabled";
+          logMsg += " (TESTING MODE - zero-cross disabled)";
         }
-        logMsg += ")";
         Serial.println(logMsg);
         sendLogMessage(logMsg.c_str(), "info");
       } else {
-        String errorMsg = "ERROR: Failed to set dim level to " + String(level) + "%";
-        if (!REQUIRE_ZERO_CROSS) {
-          errorMsg += " (TESTING MODE - zero-cross disabled)";
+        // Dimmer channel not initialized, just set pin LOW
+        digitalWrite(DIMMER_PIN, LOW);
+        String logMsg = "Dim level set to 0% - OFF mode (pin LOW, dimmer channel not initialized)";
+        Serial.println(logMsg);
+        sendLogMessage(logMsg.c_str(), "warn");
+      }
+    }
+  } else {
+    // ON MODE: Enable pulses
+    dimmerOff = false;
+    
+    if (useSimplePWMTest) {
+      // SIMPLE PWM TEST MODE: Reattach PWM if needed and set level
+      // Check if pin is already attached, if not attach it
+      // Note: ledcAttachPin can be called multiple times safely
+      ledcAttachPin(DIMMER_PIN, 0);  // Ensure pin is attached to PWM channel
+      
+      // Map 0-100% to 0-255 PWM value
+      int pwmValue = map(level, 0, 100, 0, 255);
+      ledcWrite(0, pwmValue);  // Write PWM to channel 0 (GPIO25)
+      
+      String logMsg = "Dim level set to: " + String(level) + "% (Simple PWM test mode, PWM value: " + String(pwmValue) + "/255)";
+      Serial.println(logMsg);
+      sendLogMessage(logMsg.c_str(), "info");
+    } else {
+      // NORMAL MODE: Use RBDimmer library (handles zero-cross and phase-angle control automatically)
+      if (dimmer_channel != NULL) {
+        // Ensure pin is not manually held LOW (let RBDimmer control it)
+        // Note: We don't need to do anything special here, RBDimmer will handle the pin
+        
+        rbdimmer_err_t result = rbdimmer_set_level(dimmer_channel, level);
+        if (result == RBDIMMER_OK) {
+          String logMsg = "Dim level set to: " + String(level) + "% (RBDimmer controlled";
+          if (!REQUIRE_ZERO_CROSS) {
+            logMsg += ", TESTING MODE - zero-cross disabled";
+          }
+          logMsg += ")";
+          Serial.println(logMsg);
+          sendLogMessage(logMsg.c_str(), "info");
+        } else {
+          String errorMsg = "ERROR: Failed to set dim level to " + String(level) + "%";
+          if (!REQUIRE_ZERO_CROSS) {
+            errorMsg += " (TESTING MODE - zero-cross disabled)";
+          }
+          Serial.println(errorMsg);
+          sendLogMessage(errorMsg.c_str(), "error");
         }
+      } else {
+        String errorMsg = "ERROR: Dimmer channel not initialized!";
         Serial.println(errorMsg);
         sendLogMessage(errorMsg.c_str(), "error");
       }
-    } else {
-      String errorMsg = "ERROR: Dimmer channel not initialized!";
-      Serial.println(errorMsg);
-      sendLogMessage(errorMsg.c_str(), "error");
     }
   }
 }

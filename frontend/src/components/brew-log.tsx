@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Save, X } from 'lucide-react';
+import React, { useMemo, useState, useRef } from 'react';
+import { Plus, Pencil, Trash2, Save, X, Download, Upload } from 'lucide-react';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 import type { BrewLogEntry } from '@/types';
 
@@ -40,6 +40,7 @@ export const BrewLog: React.FC = () => {
   const [entries, setEntries] = useLocalStorage<BrewLogEntry[]>('modspresso-brew-log', []);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [draft, setDraft] = useState<BrewLogDraft>(createEmptyDraft());
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [sortKey, setSortKey] = useState<keyof BrewLogEntry>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -157,22 +158,170 @@ export const BrewLog: React.FC = () => {
     }
   };
 
+  const handleExportCSV = () => {
+    if (entries.length === 0) {
+      alert('No brew logs to export');
+      return;
+    }
+
+    // CSV header
+    const header = ['Date', 'Beans', 'Grind', 'Next', 'In (g)', 'Out (g)', 'Time (s)', 'Grade', 'Notes'];
+    
+    // CSV rows
+    const rows = entries.map(entry => [
+      entry.date || '',
+      entry.beanType || '',
+      entry.grindSize || '',
+      entry.nextGrindSize || '',
+      entry.gramsIn != null ? entry.gramsIn.toString() : '',
+      entry.gramsOut != null ? entry.gramsOut.toString() : '',
+      entry.brewTimeSeconds != null ? entry.brewTimeSeconds.toString() : '',
+      entry.grade != null ? entry.grade.toString() : '',
+      entry.notes || ''
+    ]);
+
+    // Combine header and rows
+    const csvContent = [
+      header.join(','),
+      ...rows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
+    ].join('\n');
+
+    // Create blob and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', `modspresso-brew-log-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    console.log(`✅ Exported ${entries.length} brew logs to CSV`);
+  };
+
+  const handleImportCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.split('\n').filter(line => line.trim());
+        
+        if (lines.length < 2) {
+          alert('CSV file is empty or invalid');
+          return;
+        }
+
+        // Skip header line
+        const dataLines = lines.slice(1);
+        const importedEntries: BrewLogEntry[] = [];
+
+        for (const line of dataLines) {
+          // Parse CSV (handle quoted fields)
+          const matches = line.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g);
+          if (!matches || matches.length < 9) continue;
+
+          const [date, beanType, grindSize, nextGrindSize, gramsIn, gramsOut, brewTimeSeconds, grade, notes] = 
+            matches.map(field => field.replace(/^"|"$/g, '').replace(/""/g, '"'));
+
+          const entry: BrewLogEntry = {
+            id: `brew-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            date: date.trim(),
+            beanType: beanType.trim(),
+            grindSize: grindSize.trim(),
+            nextGrindSize: nextGrindSize.trim(),
+            gramsIn: gramsIn.trim() ? parseFloat(gramsIn) : null,
+            gramsOut: gramsOut.trim() ? parseFloat(gramsOut) : null,
+            brewTimeSeconds: brewTimeSeconds.trim() ? parseFloat(brewTimeSeconds) : null,
+            grade: grade.trim() ? parseFloat(grade) : null,
+            notes: notes.trim(),
+            createdAt: new Date().toISOString()
+          };
+
+          importedEntries.push(entry);
+        }
+
+        if (importedEntries.length === 0) {
+          alert('No valid entries found in CSV file');
+          return;
+        }
+
+        // Ask user if they want to append or replace
+        const shouldReplace = confirm(
+          `Found ${importedEntries.length} entries in CSV.\n\n` +
+          `Click OK to REPLACE existing logs (${entries.length} entries)\n` +
+          `Click Cancel to APPEND to existing logs`
+        );
+
+        if (shouldReplace) {
+          setEntries(importedEntries);
+        } else {
+          setEntries([...entries, ...importedEntries]);
+        }
+
+        console.log(`✅ Imported ${importedEntries.length} brew logs from CSV`);
+        alert(`Successfully imported ${importedEntries.length} brew logs!`);
+      } catch (error) {
+        console.error('Failed to import CSV:', error);
+        alert('Failed to import CSV file. Please check the format.');
+      }
+    };
+
+    reader.readAsText(file);
+    
+    // Reset file input so the same file can be imported again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-gray-800">Brew Log</h2>
           <p className="text-sm text-gray-600">
-            Track how it went and what to adjust next time.
+            {entries.length} {entries.length === 1 ? 'log' : 'logs'} • Track how it went and what to adjust next time
           </p>
         </div>
-        <button
-          onClick={openNewEntry}
-          className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-sm"
-        >
-          <Plus size={16} className="mr-2" />
-          New Log
-        </button>
+        <div className="flex space-x-2">
+          <button
+            onClick={handleExportCSV}
+            disabled={entries.length === 0}
+            className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors text-sm disabled:bg-gray-50 disabled:text-gray-400"
+            title="Export brew logs to CSV"
+          >
+            <Download size={16} className="mr-2" />
+            Export CSV
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv"
+            onChange={handleImportCSV}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors text-sm"
+            title="Import brew logs from CSV"
+          >
+            <Upload size={16} className="mr-2" />
+            Import CSV
+          </button>
+          <button
+            onClick={openNewEntry}
+            className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors text-sm"
+          >
+            <Plus size={16} className="mr-2" />
+            New Log
+          </button>
+        </div>
       </div>
 
       {isEditorOpen && (
