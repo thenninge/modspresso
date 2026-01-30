@@ -24,6 +24,7 @@ export default function Home() {
   const [isMounted, setIsMounted] = useState(false);
   const [selectedBrewProfile, setSelectedBrewProfile] = useState<string>('');
   const [showPairingModal, setShowPairingModal] = useState(false);
+  const [swControlEnabled, setSwControlEnabled] = useState(false);
   
   // Use Web Bluetooth hook at top level to maintain connection across tab switches
   const bluetoothHook = useWebBluetooth();
@@ -896,6 +897,27 @@ export default function Home() {
               <h1 className="text-xl font-bold text-gray-900">Modspresso</h1>
             </div>
             <div className="flex items-center space-x-4">
+              {bluetoothConnected && (
+                <button
+                  onClick={async () => {
+                    const newState = !swControlEnabled;
+                    try {
+                      await bluetoothHook.sendCommand({ command: 'set_sw_control', enable: newState });
+                      setSwControlEnabled(newState);
+                    } catch (error) {
+                      console.error('Error setting SW control:', error);
+                    }
+                  }}
+                  className={`flex items-center px-3 py-1.5 text-xs rounded-md transition-colors ${
+                    swControlEnabled 
+                      ? 'bg-orange-500 text-white hover:bg-orange-600' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                  title={swControlEnabled ? 'SW Control aktiv - hardware bryter ignoreres' : 'Aktiver SW Control for å teste uten bryter'}
+                >
+                  {swControlEnabled ? '⚠️ SW Control' : 'Enable SW Control'}
+                </button>
+              )}
               <button
                 onClick={() => !bluetoothConnected && setShowPairingModal(true)}
                 className={`flex items-center text-sm transition-colors ${

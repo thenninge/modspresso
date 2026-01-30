@@ -54,6 +54,9 @@ unsigned long pulseCount = 0;
 unsigned long offModeStartTime = 0;
 bool zcEnabled = true;
 
+// Software control mode (bypasses hardware switch safety)
+bool swControlEnabled = false;
+
 // Timer handle
 esp_timer_handle_t pulseTimerHandle = NULL;
 
@@ -209,8 +212,13 @@ void IRAM_ATTR zeroCrossISR() {
     zcInterval = now - lastZcTimestamp;
   }
   lastZcTimestamp = now;
-  zcFlag = true;
   zcTimestamp = now;
+  
+  // Schedule triac pulse directly in ISR (not via loop polling)
+  if (dimmerMode == DIM_ON && pulseTimerHandle != NULL) {
+    esp_timer_stop(pulseTimerHandle);
+    esp_timer_start_once(pulseTimerHandle, pulseDelayUs);
+  }
 }
 
 // ============================================================================
@@ -233,7 +241,8 @@ void initTriacDrive() {
   digitalWrite(DIMMER_PIN, LOW);
   
   pinMode(ZERO_CROSS_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, FALLING);
+  // NOTE: Using RISING edge - if 100% gives low power, try FALLING
+  attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, RISING);
   
   dimmerMode = DIM_OFF;
   dimmerLevel = 0;
@@ -320,30 +329,28 @@ void printTriacStats() {
   static unsigned long lastPrint = 0;
   static unsigned long lastPulseCount = 0;
   
-  if (millis() - lastPrint < 2000) return;
+  if (millis() - lastPrint < 5000) return;  // Every 5 seconds
   
-  float pps = (pulseCount - lastPulseCount) / 2.0f;
+  float pps = (pulseCount - lastPulseCount) / 5.0f;
   lastPulseCount = pulseCount;
   lastPrint = millis();
   
   String modeStr = pwmTestMode ? "PWM_TEST" : (dimmerMode == DIM_OFF ? "OFF" : "TRIAC");
   
-  Serial.print("[DIMMER STATS] Mode: ");
-  Serial.print(modeStr);
-  Serial.print(", Level: ");
-  Serial.print(dimmerLevel);
-  Serial.print("%, Pulses: ");
-  Serial.print(pulseCount);
-  Serial.print(", Pulses/sec: ");
-  Serial.print(pps, 1);
-  Serial.print(", ZC: ");
-  Serial.print(zcEnabled ? "ON" : "OFF");
+  // Build stats string
+  String stats = "[DIMMER STATS] Mode: " + modeStr + 
+                 ", Level: " + String(dimmerLevel) + "%" +
+                 ", Pulses: " + String(pulseCount) +
+                 ", Pulses/sec: " + String(pps, 1) +
+                 ", ZC: " + String(zcEnabled ? "ON" : "OFF");
+  
   if (zcEnabled && zcInterval > 0) {
-    Serial.print(", ZC interval: ");
-    Serial.print(zcInterval);
-    Serial.print("µs");
+    stats += ", ZC interval: " + String(zcInterval) + "µs";
   }
-  Serial.println();
+  
+  // Print to Serial AND send via BLE
+  Serial.println(stats);
+  sendLogMessage(stats.c_str(), "debug");
 }
 
 void setup() {
@@ -477,14 +484,15 @@ void loop() {
     Serial.println("Initial messages sent");
   }
 
-  // CRITICAL: Process zero-cross events (schedule triac pulses)
-  processZeroCross();
+  // NOTE: ZC processing now happens directly in ISR for reliable timing
+  // processZeroCross() no longer needed for pulse scheduling
 
   // Handle profile execution
   if (isRunning) {
     executeProfile();
-  } else {
+  } else if (!swControlEnabled) {
     // Ensure dimmer is in OFF mode when no profile is running
+    // (unless SW control is enabled for manual testing)
     if (dimmerMode != DIM_OFF) {
       setDimLevel(0);
     }
@@ -756,18 +764,18 @@ void handleCommand(const char* command) {
       Serial.println("  Direct PWM output on GPIO25");
       Serial.println("  Use set_dim_level to control");
       Serial.println("========================================");
-      sendLogMessage("PWM test mode ENABLED - ZC disabled", "warn");
+      sendLogMessage("[DIMMER] PWM test mode ENABLED - ZC disabled", "warn");
     } else {
       // Disable PWM, re-enable ZC
       ledcDetachPin(DIMMER_PIN);
       pinMode(DIMMER_PIN, OUTPUT);
       digitalWrite(DIMMER_PIN, LOW);
       
-      attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, FALLING);
+      attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, RISING);
       zcEnabled = true;
       
       Serial.println("[DIMMER] PWM test mode DISABLED - TRIAC mode active");
-      sendLogMessage("PWM test mode DISABLED - TRIAC mode", "info");
+      sendLogMessage("[DIMMER] PWM test mode DISABLED - TRIAC mode active", "info");
     }
     
     DynamicJsonDocument response(256);
@@ -779,49 +787,52 @@ void handleCommand(const char* command) {
     int level = doc["level"] | 0;
     setDimLevel(level);
     
+    String modeStr = pwmTestMode ? "PWM_TEST" : (dimmerMode == DIM_OFF ? "OFF" : "TRIAC");
+    String msg = "[DIMMER] Level set to " + String(dimmerLevel) + "% (" + modeStr + ")";
+    sendLogMessage(msg.c_str(), "info");
+    
     DynamicJsonDocument response(256);
     response["status"] = "dim_level_set";
     response["level"] = dimmerLevel;
-    response["mode"] = (dimmerMode == DIM_OFF) ? "OFF" : "ON";
+    response["mode"] = modeStr;
     response["delay_us"] = pulseDelayUs;
     sendResponse(response);
   } else if (cmd == "set_zc_enabled") {
     bool enabled = doc["enabled"] | true;
     zcEnabled = enabled;
     
+    String msg;
     if (enabled) {
-      attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, FALLING);
-      Serial.println("[ZC] Zero-cross detection enabled");
+      attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, RISING);
+      msg = "[ZC] Zero-cross detection ENABLED";
     } else {
       detachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN));
-      Serial.println("[ZC] Zero-cross detection disabled");
+      msg = "[ZC] Zero-cross detection DISABLED";
     }
+    Serial.println(msg);
+    sendLogMessage(msg.c_str(), "info");
     
     DynamicJsonDocument response(256);
     response["status"] = "zc_enabled_set";
     response["enabled"] = zcEnabled;
     sendResponse(response);
   } else if (cmd == "sanity_test") {
-    Serial.println("========================================");
-    Serial.println("[SANITY TEST] Starting DIM sanity test");
-    Serial.println("  Phase 1: OFF for 2 seconds");
-    Serial.println("  Phase 2: 50% for 2 seconds");
-    Serial.println("  Phase 3: 100% for 2 seconds");
-    Serial.println("  Phase 4: OFF");
-    Serial.println("========================================");
+    sendLogMessage("[SANITY TEST] Starting: OFF→50%→100%→OFF", "info");
     
     setDimLevel(0);
+    sendLogMessage("[SANITY TEST] Phase 1: OFF", "debug");
     delay(2000);
     
     setDimLevel(50);
+    sendLogMessage("[SANITY TEST] Phase 2: 50%", "debug");
     delay(2000);
     
     setDimLevel(100);
+    sendLogMessage("[SANITY TEST] Phase 3: 100%", "debug");
     delay(2000);
     
     setDimLevel(0);
-    
-    Serial.println("[SANITY TEST] Complete");
+    sendLogMessage("[SANITY TEST] Complete - dimmer OFF", "info");
     
     DynamicJsonDocument response(256);
     response["status"] = "sanity_test_complete";
@@ -833,6 +844,26 @@ void handleCommand(const char* command) {
     response["level"] = dimmerLevel;
     response["delay_us"] = pulseDelayUs;
     response["pulse_count"] = pulseCount;
+    response["sw_control"] = swControlEnabled;
+    sendResponse(response);
+  } else if (cmd == "set_sw_control") {
+    bool enable = doc["enable"] | false;
+    swControlEnabled = enable;
+    
+    String msg;
+    if (enable) {
+      msg = "[SAFETY] SW control ENABLED - hardware switch bypassed!";
+      sendLogMessage(msg.c_str(), "warn");
+    } else {
+      msg = "[SAFETY] SW control DISABLED - hardware switch active";
+      setDimLevel(0);  // Force OFF when disabling SW control
+      sendLogMessage(msg.c_str(), "info");
+    }
+    Serial.println(msg);
+    
+    DynamicJsonDocument response(256);
+    response["status"] = "sw_control_set";
+    response["enabled"] = swControlEnabled;
     sendResponse(response);
   }
 }
