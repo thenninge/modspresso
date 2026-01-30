@@ -8,7 +8,7 @@
 #include <HTTPUpdate.h>
 #include <WiFiClientSecure.h>
 #include <Preferences.h>
-#include "rbdimmerESP32.h"
+#include <esp_timer.h>
 
 // Pin definitions
 #define ZERO_CROSS_PIN 33   // GPIO33 (D33) for zero-cross detection (RobotDyn Mod-Dimmer-5A-1L)
@@ -16,7 +16,46 @@
 #define LED_PIN 2           // GPIO2 for status LED (built-in LED)
 #define BUTTON_1_PIN 18     // GPIO18 (D18) for hardware button 1 (Program 1)
 #define BUTTON_2_PIN 19     // GPIO19 (D19) for hardware button 2 (Program 2)
-// Note: No pressure sensor pin - using manual manometer reading
+
+// ============================================================================
+// TRIAC DRIVE CONFIGURATION (Custom implementation - replaces RBDimmer)
+// ============================================================================
+
+// Debug mode
+#define DIM_DEBUG 1
+
+// Pulse timing constants (for 50Hz AC)
+#define PULSE_WIDTH_US 300      // Trigger pulse width
+#define DELAY_FULL_US 200       // Delay for full power (100%)
+#define DELAY_OFF_US 10500      // Delay for OFF (never fires within half-cycle)
+
+// AC frequency
+#define AC_FREQ_HZ 50
+
+// Triac drive state
+enum DimmerMode {
+  DIM_OFF = 0,
+  DIM_ON = 1
+};
+
+volatile bool zcFlag = false;
+volatile unsigned long zcTimestamp = 0;
+volatile unsigned long lastZcTimestamp = 0;
+volatile unsigned long zcInterval = 0;
+DimmerMode dimmerMode = DIM_OFF;
+int dimmerLevel = 0;
+unsigned long pulseDelayUs = DELAY_OFF_US;
+
+// PWM test mode (bypasses zero-cross, direct LEDC PWM)
+bool pwmTestMode = false;
+
+// Instrumentation
+unsigned long pulseCount = 0;
+unsigned long offModeStartTime = 0;
+bool zcEnabled = true;
+
+// Timer handle
+esp_timer_handle_t pulseTimerHandle = NULL;
 
 // Bluetooth service and characteristic UUIDs
 #define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -72,6 +111,9 @@ const unsigned long DEBOUNCE_DELAY = 50; // 50ms debounce
 bool button1StateInitialized = false;
 bool button2StateInitialized = false;
 
+// Power-up safety: Prevents auto-start if switch is ON at boot
+bool powerUpSafetyActive = false;  // True = switch was ON at boot, waiting for OFF
+
 // Calibration data
 int dimLevelToPressure[11] = {0}; // 0%, 10%, 20%, ..., 100%
 bool isCalibrated = false;
@@ -86,29 +128,8 @@ char wifiPassword[64] = "";  // WiFi password (set via BLE command)
 bool wifiConfigured = false;
 bool wifiConnected = false;
 
-// Zero-cross dimmer configuration (RobotDyn Mod-Dimmer-5A-1L)
-// Using RBDimmer library for proper zero-cross detection and phase-angle control
-#define PHASE_NUM 0  // Phase number (0 for single phase)
-rbdimmer_channel_t* dimmer_channel = NULL;  // Dimmer channel object
-
-// TESTING MODE: Set to false to disable zero-cross requirement (for testing dimmer LED)
-// IMPORTANT: Set back to true when using with real pump in loop!
-#define REQUIRE_ZERO_CROSS true  // Set to false to test dimmer without zero-cross input
-
-// SIMPLE PWM TEST MODE: Runtime variable (can be changed via serial command)
-// This is ONLY for testing if dimmer LED lights up - NOT for real pump operation!
-// IMPORTANT: Set back to false when using with real pump in loop!
-bool useSimplePWMTest = false;  // Can be set via serial command "set_pwm_test_mode"
-
-// Dimmer OFF state: When true, dimmer is completely off (no pulses, pin held LOW)
-// OFF MODE behavior:
-//   - No pulses are sent on DIM pin
-//   - DIM pin is held LOW via digitalWrite()
-//   - For simple PWM: PWM is detached (ledcDetachPin)
-//   - For RBDimmer: Level is set to 0, then pin is manually held LOW
-//   - In zero-cross ISR (handled by RBDimmer): When level is 0, no pulses should be generated
-//   - When level > 0: dimmerOff = false, PWM/RBDimmer takes control
-bool dimmerOff = true;  // Start in OFF state
+// Dimmer state is now managed by inline triac driver (see top of file)
+// No RBDimmer library needed
 
 // Preferences for non-volatile storage (NVS)
 Preferences preferences;
@@ -145,6 +166,14 @@ void loadDefaultProfiles();
 void sendResponse(DynamicJsonDocument& doc);
 void sendLogMessage(const char* message, const char* level = "info");
 
+// Triac drive function declarations
+void IRAM_ATTR zeroCrossISR();
+void IRAM_ATTR pulseTimerCallback(void* arg);
+void initTriacDrive();
+void setTriacLevel(int level);
+void processZeroCross();
+void printTriacStats();
+
 class MyServerCallbacks: public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) {
       deviceConnected = true;
@@ -171,23 +200,164 @@ class MyCallbacks: public BLECharacteristicCallbacks {
     }
 };
 
+// ============================================================================
+// ZERO-CROSS ISR (Keep minimal!)
+// ============================================================================
+void IRAM_ATTR zeroCrossISR() {
+  unsigned long now = micros();
+  if (lastZcTimestamp > 0) {
+    zcInterval = now - lastZcTimestamp;
+  }
+  lastZcTimestamp = now;
+  zcFlag = true;
+  zcTimestamp = now;
+}
+
+// ============================================================================
+// PULSE TIMER CALLBACK
+// ============================================================================
+void IRAM_ATTR pulseTimerCallback(void* arg) {
+  if (dimmerMode == DIM_ON) {
+    digitalWrite(DIMMER_PIN, HIGH);
+    delayMicroseconds(PULSE_WIDTH_US);
+    digitalWrite(DIMMER_PIN, LOW);
+    pulseCount++;
+  }
+}
+
+// ============================================================================
+// TRIAC DRIVE INITIALIZATION
+// ============================================================================
+void initTriacDrive() {
+  pinMode(DIMMER_PIN, OUTPUT);
+  digitalWrite(DIMMER_PIN, LOW);
+  
+  pinMode(ZERO_CROSS_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, FALLING);
+  
+  dimmerMode = DIM_OFF;
+  dimmerLevel = 0;
+  pulseDelayUs = DELAY_OFF_US;
+  
+  esp_timer_create_args_t timerArgs = {
+    .callback = &pulseTimerCallback,
+    .arg = NULL,
+    .dispatch_method = ESP_TIMER_TASK,
+    .name = "triac_pulse"
+  };
+  esp_timer_create(&timerArgs, &pulseTimerHandle);
+  
+  Serial.println("[TRIAC] Drive initialized: DIM pin LOW, ZC interrupt attached");
+  Serial.println("[DIMMER] System initialized - OFF mode, ZC enabled");
+}
+
+// ============================================================================
+// SET TRIAC LEVEL
+// ============================================================================
+void setTriacLevel(int level) {
+  level = constrain(level, 0, 100);
+  dimmerLevel = level;
+  
+  if (pwmTestMode) {
+    // Direct PWM output (bypasses ZC)
+    int pwmValue = map(level, 0, 100, 0, 255);
+    ledcWrite(0, pwmValue);
+    
+    Serial.print("[DIMMER] PWM test mode - Level: ");
+    Serial.print(level);
+    Serial.print("%, PWM value: ");
+    Serial.println(pwmValue);
+    return;
+  }
+  
+  // TRIAC mode (normal operation)
+  if (level == 0) {
+    if (pulseTimerHandle != NULL) {
+      esp_timer_stop(pulseTimerHandle);
+    }
+    dimmerMode = DIM_OFF;
+    digitalWrite(DIMMER_PIN, LOW);
+    pulseDelayUs = DELAY_OFF_US;
+    offModeStartTime = millis();
+    
+    Serial.println("[DIMMER] Level 0% - OFF mode (no pulses, pin LOW)");
+  } else {
+    // Linear mapping: 100% = DELAY_FULL_US (200µs), 1% = near DELAY_OFF_US
+    pulseDelayUs = map(level, 1, 100, 9300, DELAY_FULL_US);
+    dimmerMode = DIM_ON;
+    
+    Serial.print("[DIMMER] Level ");
+    Serial.print(level);
+    Serial.print("% - TRIAC mode (delay: ");
+    Serial.print(pulseDelayUs);
+    Serial.println("µs)");
+  }
+}
+
+// Wrapper for compatibility
+void setDimLevel(int level) {
+  setTriacLevel(level);
+}
+
+// ============================================================================
+// PROCESS ZERO-CROSS (call from loop)
+// ============================================================================
+void processZeroCross() {
+  if (zcFlag) {
+    zcFlag = false;
+    
+    if (dimmerMode == DIM_ON && pulseTimerHandle != NULL) {
+      esp_timer_stop(pulseTimerHandle);
+      esp_timer_start_once(pulseTimerHandle, pulseDelayUs);
+    }
+  }
+}
+
+// ============================================================================
+// PRINT TRIAC STATS
+// ============================================================================
+void printTriacStats() {
+  static unsigned long lastPrint = 0;
+  static unsigned long lastPulseCount = 0;
+  
+  if (millis() - lastPrint < 2000) return;
+  
+  float pps = (pulseCount - lastPulseCount) / 2.0f;
+  lastPulseCount = pulseCount;
+  lastPrint = millis();
+  
+  String modeStr = pwmTestMode ? "PWM_TEST" : (dimmerMode == DIM_OFF ? "OFF" : "TRIAC");
+  
+  Serial.print("[DIMMER STATS] Mode: ");
+  Serial.print(modeStr);
+  Serial.print(", Level: ");
+  Serial.print(dimmerLevel);
+  Serial.print("%, Pulses: ");
+  Serial.print(pulseCount);
+  Serial.print(", Pulses/sec: ");
+  Serial.print(pps, 1);
+  Serial.print(", ZC: ");
+  Serial.print(zcEnabled ? "ON" : "OFF");
+  if (zcEnabled && zcInterval > 0) {
+    Serial.print(", ZC interval: ");
+    Serial.print(zcInterval);
+    Serial.print("µs");
+  }
+  Serial.println();
+}
+
 void setup() {
   Serial.begin(115200);
   Serial.println("Starting Espresso Profiler ESP32...");
 
-  // CRITICAL: Initialize DIM pin FIRST, before anything else
-  // This ensures the pin is LOW and no pulses are sent when system starts
-  pinMode(DIMMER_PIN, OUTPUT);
-  digitalWrite(DIMMER_PIN, LOW);
-  dimmerOff = true;  // Start in OFF state (no pulses)
-  Serial.println("DIM pin initialized: GPIO" + String(DIMMER_PIN) + " set to LOW (OFF mode)");
+  // CRITICAL: Initialize triac drive FIRST
+  initTriacDrive();
 
   // Initialize Preferences (NVS) for persistent storage
-  preferences.begin("modspresso", false);  // false = read-write mode
+  preferences.begin("modspresso", false);
   Serial.println("NVS (Preferences) initialized");
   
   // Load saved data from NVS
-  Serial.println("Loading saved data from NVS...");
   loadCalibrationData();
   loadProfiles();
   loadDefaultProfiles();
@@ -195,105 +365,28 @@ void setup() {
 
   // Initialize pins
   pinMode(LED_PIN, OUTPUT);
-  // Button pins with internal pull-up (button connects to GND when pressed)
-  pinMode(BUTTON_1_PIN, INPUT_PULLUP);  // GPIO18 - Button 1 (LOW = pressed, HIGH = not pressed)
-  pinMode(BUTTON_2_PIN, INPUT_PULLUP);  // GPIO19 - Button 2 (LOW = pressed, HIGH = not pressed)
+  pinMode(BUTTON_1_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_2_PIN, INPUT_PULLUP);
   digitalWrite(LED_PIN, LOW);
   
-  // Initialize button states to actual current state (read after pull-up is configured)
-  // This prevents false emergency stops after power cycle
-  delay(10); // Small delay to let pull-ups stabilize
+  // Initialize button states with power-up safety
+  delay(10);
   lastButton1State = digitalRead(BUTTON_1_PIN);
   lastButton2State = digitalRead(BUTTON_2_PIN);
   lastButton1Time = millis();
   lastButton2Time = millis();
   button1StateInitialized = false;
   button2StateInitialized = false;
-  Serial.println("Button states initialized at startup:");
-  Serial.println("  Button1: " + String(lastButton1State == LOW ? "LOW (pressed)" : "HIGH (not pressed)"));
-  Serial.println("  Button2: " + String(lastButton2State == LOW ? "LOW (pressed)" : "HIGH (not pressed)"));
-
-  // Initialize dimmer - either simple PWM test mode or RBDimmer library
-  // Note: DIM pin is already set to LOW in OFF mode at the start of setup()
-  if (useSimplePWMTest) {
-    // SIMPLE PWM TEST MODE: Direct PWM output for testing dimmer LED
-    // WARNING: This is ONLY for testing - NOT for real pump operation!
-    Serial.println("========================================");
-    Serial.println("SIMPLE PWM TEST MODE ENABLED!");
-    Serial.println("  This mode uses direct PWM on GPIO" + String(DIMMER_PIN));
-    Serial.println("  RBDimmer library is DISABLED");
-    Serial.println("  This is ONLY for testing dimmer LED!");
-    Serial.println("  Set USE_SIMPLE_PWM_TEST to false for real pump operation!");
-    Serial.println("========================================");
-    sendLogMessage("SIMPLE PWM TEST MODE ENABLED - RBDimmer disabled", "warn");
-    
-    // Setup PWM channel for dimmer pin (but don't attach yet - pin stays LOW in OFF mode)
-    ledcSetup(0, 5000, 8);  // Channel 0, 5kHz frequency, 8-bit resolution (0-255)
-    // Note: Pin is NOT attached here - it will be attached when level > 0
-    // Pin remains LOW (OFF mode) until setDimLevel() is called with level > 0
-    
-    Serial.println("Simple PWM channel configured (pin stays LOW in OFF mode until level > 0)");
-    Serial.println("  PWM channel: 0");
-    Serial.println("  Frequency: 5kHz");
-    Serial.println("  Resolution: 8-bit (0-255)");
-    Serial.println("  Pin GPIO" + String(DIMMER_PIN) + " is LOW (OFF mode)");
-    sendLogMessage("Simple PWM initialized for testing (OFF mode)", "info");
+  
+  // Power-up safety check: Is switch ON at boot?
+  if (lastButton1State == LOW || lastButton2State == LOW) {
+    powerUpSafetyActive = true;
+    Serial.println("[SWITCH] WARNING: Switch is ON at boot - waiting for OFF position");
+    Serial.println("[SWITCH] Move switch to OFF position, then ON to start program");
+    Serial.println("[SWITCH] Power-up safety ACTIVE");
   } else {
-    // NORMAL MODE: Use RBDimmer library for proper zero-cross detection
-    Serial.println("Initializing RBDimmer library...");
-    
-    if (rbdimmer_init() != RBDIMMER_OK) {
-      Serial.println("ERROR: Failed to initialize RBDimmer library");
-      sendLogMessage("ERROR: Failed to initialize RBDimmer library", "error");
-    } else {
-      Serial.println("RBDimmer library initialized");
-    }
-    
-    // Register zero-cross detector (if required)
-    if (REQUIRE_ZERO_CROSS) {
-      if (rbdimmer_register_zero_cross(ZERO_CROSS_PIN, PHASE_NUM, 0) != RBDIMMER_OK) {
-        Serial.println("ERROR: Failed to register zero-cross detector on GPIO" + String(ZERO_CROSS_PIN));
-        sendLogMessage("ERROR: Failed to register zero-cross detector", "error");
-      } else {
-        Serial.println("Zero-cross detector registered on GPIO" + String(ZERO_CROSS_PIN));
-      }
-    } else {
-      Serial.println("WARNING: Zero-cross detection DISABLED (TESTING MODE)");
-      Serial.println("  This is for testing dimmer LED only!");
-      Serial.println("  Set REQUIRE_ZERO_CROSS to true for real pump operation!");
-      sendLogMessage("WARNING: Zero-cross disabled - TESTING MODE", "warn");
-    }
-    
-    // Create dimmer channel configuration
-    rbdimmer_config_t dimmer_config = {
-      .gpio_pin = DIMMER_PIN,
-      .phase = PHASE_NUM,
-      .initial_level = 0,  // Start with 0% (off)
-      .curve_type = RBDIMMER_CURVE_RMS  // RMS curve for smooth dimming (good for resistive loads)
-    };
-    
-    if (rbdimmer_create_channel(&dimmer_config, &dimmer_channel) != RBDIMMER_OK) {
-      Serial.println("ERROR: Failed to create dimmer channel on GPIO" + String(DIMMER_PIN));
-      sendLogMessage("ERROR: Failed to create dimmer channel", "error");
-    } else {
-      Serial.println("Dimmer channel created on GPIO" + String(DIMMER_PIN));
-      if (REQUIRE_ZERO_CROSS) {
-        Serial.println("Zero-cross dimmer initialized successfully:");
-        Serial.println("  Zero-cross pin: GPIO" + String(ZERO_CROSS_PIN));
-        Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
-        Serial.println("  Phase: " + String(PHASE_NUM));
-        Serial.println("  Curve type: RMS");
-        sendLogMessage("Zero-cross dimmer initialized successfully", "info");
-      } else {
-        Serial.println("Dimmer initialized in TESTING MODE (zero-cross disabled):");
-        Serial.println("  Zero-cross pin: DISABLED");
-        Serial.println("  Gate pin: GPIO" + String(DIMMER_PIN));
-        Serial.println("  Phase: " + String(PHASE_NUM));
-        Serial.println("  Curve type: RMS");
-        Serial.println("  WARNING: This mode is for testing dimmer LED only!");
-        sendLogMessage("Dimmer initialized in TESTING MODE (zero-cross disabled)", "warn");
-      }
-    }
+    powerUpSafetyActive = false;
+    Serial.println("[SWITCH] Switch is OFF at boot - normal operation");
   }
 
   // Initialize Bluetooth
@@ -384,19 +477,24 @@ void loop() {
     Serial.println("Initial messages sent");
   }
 
+  // CRITICAL: Process zero-cross events (schedule triac pulses)
+  processZeroCross();
+
   // Handle profile execution
   if (isRunning) {
     executeProfile();
   } else {
     // Ensure dimmer is in OFF mode when no profile is running
-    // This prevents lights from staying on when buttons are in off position
-    if (!dimmerOff) {
-      setDimLevel(0);  // This will set dimmerOff = true and hold pin LOW
+    if (dimmerMode != DIM_OFF) {
+      setDimLevel(0);
     }
   }
 
   // Check hardware buttons
   checkHardwareButtons();
+
+  // Print triac stats periodically
+  printTriacStats();
 
   // Send status updates every second
   static unsigned long lastStatusUpdate = 0;
@@ -562,9 +660,6 @@ void handleCommand(const char* command) {
     }
   } else if (cmd == "stop_profile") {
     stopProfile();
-  } else if (cmd == "set_dim_level") {
-    int level = doc["level"];
-    setDimLevel(level);
   } else if (cmd == "start_calibration") {
     startCalibration();
   } else if (cmd == "set_calibration_point") {
@@ -638,46 +733,106 @@ void handleCommand(const char* command) {
     response["profile_count"] = 0;
     sendResponse(response);
   } else if (cmd == "set_pwm_test_mode") {
-    // Toggle simple PWM test mode (for testing dimmer LED)
     bool enable = doc["enable"] | false;
     
-    // First, ensure dimmer is in OFF mode before switching modes
-    setDimLevel(0);  // This will set dimmerOff = true and hold pin LOW
+    // First, turn off dimmer
+    setDimLevel(0);
     
-    useSimplePWMTest = enable;
+    pwmTestMode = enable;
     
-    if (useSimplePWMTest) {
-      // Initialize simple PWM channel (but don't attach - pin stays LOW in OFF mode)
-      ledcSetup(0, 5000, 8);  // Channel 0, 5kHz frequency, 8-bit resolution (0-255)
-      // Pin is NOT attached here - it will be attached when setDimLevel() is called with level > 0
-      // Pin remains LOW (OFF mode)
+    if (pwmTestMode) {
+      // Disable ZC interrupt, use direct PWM
+      detachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN));
+      zcEnabled = false;
       
-      String logMsg = "Simple PWM test mode ENABLED (RBDimmer disabled, pin LOW in OFF mode)";
+      // Setup LEDC PWM channel
+      ledcSetup(0, 1000, 8);  // Channel 0, 1kHz, 8-bit
+      ledcAttachPin(DIMMER_PIN, 0);
+      ledcWrite(0, 0);  // Start at 0
+      
       Serial.println("========================================");
-      Serial.println(logMsg);
-      Serial.println("  WARNING: This is ONLY for testing dimmer LED!");
-      Serial.println("  Set back to false for real pump operation!");
-      Serial.println("  Send: {\"command\":\"set_pwm_test_mode\",\"enable\":false}");
-      Serial.println("  Pin GPIO" + String(DIMMER_PIN) + " is LOW (OFF mode - no pulses)");
+      Serial.println("[DIMMER] PWM TEST MODE ENABLED");
+      Serial.println("  Zero-cross: DISABLED");
+      Serial.println("  Direct PWM output on GPIO25");
+      Serial.println("  Use set_dim_level to control");
       Serial.println("========================================");
-      sendLogMessage(logMsg.c_str(), "warn");
+      sendLogMessage("PWM test mode ENABLED - ZC disabled", "warn");
     } else {
-      // When disabling simple PWM, ensure pin is LOW and detached
-      ledcDetachPin(DIMMER_PIN);  // Detach PWM
-      digitalWrite(DIMMER_PIN, LOW);  // Hold pin LOW
-      dimmerOff = true;  // Ensure OFF mode
+      // Disable PWM, re-enable ZC
+      ledcDetachPin(DIMMER_PIN);
+      pinMode(DIMMER_PIN, OUTPUT);
+      digitalWrite(DIMMER_PIN, LOW);
       
-      // Note: RBDimmer will need to be re-initialized if it was used before
-      // For now, we just ensure the pin is LOW
+      attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, FALLING);
+      zcEnabled = true;
       
-      String logMsg = "Simple PWM test mode DISABLED (pin LOW in OFF mode)";
-      Serial.println(logMsg);
-      sendLogMessage(logMsg.c_str(), "info");
+      Serial.println("[DIMMER] PWM test mode DISABLED - TRIAC mode active");
+      sendLogMessage("PWM test mode DISABLED - TRIAC mode", "info");
     }
     
     DynamicJsonDocument response(256);
     response["status"] = "pwm_test_mode_set";
-    response["enabled"] = useSimplePWMTest;
+    response["enabled"] = pwmTestMode;
+    response["zc_enabled"] = zcEnabled;
+    sendResponse(response);
+  } else if (cmd == "set_dim_level") {
+    int level = doc["level"] | 0;
+    setDimLevel(level);
+    
+    DynamicJsonDocument response(256);
+    response["status"] = "dim_level_set";
+    response["level"] = dimmerLevel;
+    response["mode"] = (dimmerMode == DIM_OFF) ? "OFF" : "ON";
+    response["delay_us"] = pulseDelayUs;
+    sendResponse(response);
+  } else if (cmd == "set_zc_enabled") {
+    bool enabled = doc["enabled"] | true;
+    zcEnabled = enabled;
+    
+    if (enabled) {
+      attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossISR, FALLING);
+      Serial.println("[ZC] Zero-cross detection enabled");
+    } else {
+      detachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN));
+      Serial.println("[ZC] Zero-cross detection disabled");
+    }
+    
+    DynamicJsonDocument response(256);
+    response["status"] = "zc_enabled_set";
+    response["enabled"] = zcEnabled;
+    sendResponse(response);
+  } else if (cmd == "sanity_test") {
+    Serial.println("========================================");
+    Serial.println("[SANITY TEST] Starting DIM sanity test");
+    Serial.println("  Phase 1: OFF for 2 seconds");
+    Serial.println("  Phase 2: 50% for 2 seconds");
+    Serial.println("  Phase 3: 100% for 2 seconds");
+    Serial.println("  Phase 4: OFF");
+    Serial.println("========================================");
+    
+    setDimLevel(0);
+    delay(2000);
+    
+    setDimLevel(50);
+    delay(2000);
+    
+    setDimLevel(100);
+    delay(2000);
+    
+    setDimLevel(0);
+    
+    Serial.println("[SANITY TEST] Complete");
+    
+    DynamicJsonDocument response(256);
+    response["status"] = "sanity_test_complete";
+    sendResponse(response);
+  } else if (cmd == "get_dimmer_stats") {
+    DynamicJsonDocument response(512);
+    response["status"] = "dimmer_stats";
+    response["mode"] = (dimmerMode == DIM_OFF) ? "OFF" : "TRIAC";
+    response["level"] = dimmerLevel;
+    response["delay_us"] = pulseDelayUs;
+    response["pulse_count"] = pulseCount;
     sendResponse(response);
   }
 }
@@ -793,13 +948,12 @@ void stopProfile() {
   
   isRunning = false;
   setDimLevel(0);
+  Serial.println("[DIMMER] Force OFF executed");
   
   unsigned long duration = 0;
   if (startTime > 0) {
     duration = (millis() - startTime) / 1000; // Duration in seconds
   }
-  
-  Serial.println("DEBUG stopProfile: startTime=" + String(startTime) + ", millis()=" + String(millis()) + ", duration=" + String(duration) + "s");
   
   String logMsg = "Brew profile finished (duration: " + String(duration) + "s)";
   Serial.println(logMsg);
@@ -975,94 +1129,7 @@ void executeProfile() {
   }
 }
 
-void setDimLevel(int level) {
-  // Clamp level between 0 and 100
-  level = constrain(level, 0, 100);
-  
-  if (level == 0) {
-    // OFF MODE: No pulses, pin held LOW
-    dimmerOff = true;
-    
-    if (useSimplePWMTest) {
-      // SIMPLE PWM TEST MODE: Detach PWM and set pin LOW
-      ledcDetachPin(DIMMER_PIN);  // Stop PWM output
-      digitalWrite(DIMMER_PIN, LOW);  // Explicitly hold pin LOW (no pulses)
-      
-      String logMsg = "Dim level set to 0% - OFF mode (Simple PWM detached, pin LOW)";
-      Serial.println(logMsg);
-      sendLogMessage(logMsg.c_str(), "info");
-    } else {
-      // NORMAL MODE: Set RBDimmer to 0, then manually hold pin LOW
-      if (dimmer_channel != NULL) {
-        // Set RBDimmer level to 0 first
-        rbdimmer_set_level(dimmer_channel, 0);
-        // Then manually hold pin LOW to ensure no pulses
-        // Note: RBDimmer's ISR should not fire pulses when level is 0,
-        // but we explicitly hold pin LOW as a safety measure
-        digitalWrite(DIMMER_PIN, LOW);
-        
-        String logMsg = "Dim level set to 0% - OFF mode (RBDimmer level 0, pin held LOW)";
-        if (!REQUIRE_ZERO_CROSS) {
-          logMsg += " (TESTING MODE - zero-cross disabled)";
-        }
-        Serial.println(logMsg);
-        sendLogMessage(logMsg.c_str(), "info");
-      } else {
-        // Dimmer channel not initialized, just set pin LOW
-        digitalWrite(DIMMER_PIN, LOW);
-        String logMsg = "Dim level set to 0% - OFF mode (pin LOW, dimmer channel not initialized)";
-        Serial.println(logMsg);
-        sendLogMessage(logMsg.c_str(), "warn");
-      }
-    }
-  } else {
-    // ON MODE: Enable pulses
-    dimmerOff = false;
-    
-    if (useSimplePWMTest) {
-      // SIMPLE PWM TEST MODE: Reattach PWM if needed and set level
-      // Check if pin is already attached, if not attach it
-      // Note: ledcAttachPin can be called multiple times safely
-      ledcAttachPin(DIMMER_PIN, 0);  // Ensure pin is attached to PWM channel
-      
-      // Map 0-100% to 0-255 PWM value
-      int pwmValue = map(level, 0, 100, 0, 255);
-      ledcWrite(0, pwmValue);  // Write PWM to channel 0 (GPIO25)
-      
-      String logMsg = "Dim level set to: " + String(level) + "% (Simple PWM test mode, PWM value: " + String(pwmValue) + "/255)";
-      Serial.println(logMsg);
-      sendLogMessage(logMsg.c_str(), "info");
-    } else {
-      // NORMAL MODE: Use RBDimmer library (handles zero-cross and phase-angle control automatically)
-      if (dimmer_channel != NULL) {
-        // Ensure pin is not manually held LOW (let RBDimmer control it)
-        // Note: We don't need to do anything special here, RBDimmer will handle the pin
-        
-        rbdimmer_err_t result = rbdimmer_set_level(dimmer_channel, level);
-        if (result == RBDIMMER_OK) {
-          String logMsg = "Dim level set to: " + String(level) + "% (RBDimmer controlled";
-          if (!REQUIRE_ZERO_CROSS) {
-            logMsg += ", TESTING MODE - zero-cross disabled";
-          }
-          logMsg += ")";
-          Serial.println(logMsg);
-          sendLogMessage(logMsg.c_str(), "info");
-        } else {
-          String errorMsg = "ERROR: Failed to set dim level to " + String(level) + "%";
-          if (!REQUIRE_ZERO_CROSS) {
-            errorMsg += " (TESTING MODE - zero-cross disabled)";
-          }
-          Serial.println(errorMsg);
-          sendLogMessage(errorMsg.c_str(), "error");
-        }
-      } else {
-        String errorMsg = "ERROR: Dimmer channel not initialized!";
-        Serial.println(errorMsg);
-        sendLogMessage(errorMsg.c_str(), "error");
-      }
-    }
-  }
-}
+// setDimLevel is defined above (wrapper to setTriacLevel)
 
 float getCurrentPressure() {
   // Manual pressure reading - user reads from manometer
@@ -1262,20 +1329,29 @@ void checkHardwareButtons() {
   
   unsigned long currentTime = millis();
   
-  // When running, allow no button pressed. Use a press to stop the profile.
+  // Power-up safety: Clear when switch goes to OFF
+  if (powerUpSafetyActive) {
+    if (button1State == HIGH && button2State == HIGH) {
+      powerUpSafetyActive = false;
+      Serial.println("[SWITCH] Power-up safety cleared - switch moved to OFF");
+      Serial.println("[SWITCH] You can now toggle ON to start program");
+    }
+    // Don't process button presses while power-up safety is active
+    lastButton1State = button1State;
+    lastButton2State = button2State;
+    return;
+  }
   
-  // Check button 1 (Profile 1) - normal operation (only when not running)
+  // Check button 1 (Profile 1)
   if (button1State != lastButton1State) {
     if (currentTime - lastButton1Time > DEBOUNCE_DELAY) {
       if (button1State == LOW) {
-        String msg = "[BUTTON] SW1 (Button 1) pressed (GPIO18)";
-        Serial.println(msg);
-        sendLogMessage(msg.c_str(), "info");
+        Serial.println("[SWITCH] Transition: OFF -> ON1 (Program 1)");
+        sendLogMessage("[SWITCH] OFF -> ON1: Starting Program 1", "info");
         
         if (isRunning) {
-          msg = "SW1 (Button 1): Stop requested while running";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "warn");
+          Serial.println("[SWITCH] -> OFF: Stopping program");
+          sendLogMessage("[SAFETY] Stopping profile - setting dimmer to OFF", "warn");
           stopProfile();
           lastButton1Time = currentTime;
           lastButton1State = button1State;
@@ -1283,38 +1359,35 @@ void checkHardwareButtons() {
         }
 
         if (defaultProfile1 != 255) {
-          // Button 1 pressed - start default profile 1
-          msg = "Starting default profile 1 (ID: " + String(defaultProfile1) + ")";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "info");
+          Serial.println("Starting default profile 1 (ID: " + String(defaultProfile1) + ")");
           startDefaultProfile(1);
         } else {
-          msg = "SW1 (Button 1): No default profile set (set via BLE)";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "warn");
+          Serial.println("[SWITCH] SW1: No default profile set");
+          sendLogMessage("[SWITCH] SW1: No default profile set", "warn");
         }
       } else {
-        String msg = "[BUTTON] SW1 (Button 1) released (GPIO18)";
-        Serial.println(msg);
-        sendLogMessage(msg.c_str(), "debug");
+        Serial.println("[SWITCH] Transition: ON1 (Program 1) -> OFF");
+        if (isRunning) {
+          Serial.println("[SWITCH] -> OFF: Stopping program");
+          sendLogMessage("[SAFETY] Stopping profile - setting dimmer to OFF", "warn");
+          stopProfile();
+        }
       }
       lastButton1Time = currentTime;
     }
     lastButton1State = button1State;
   }
   
-  // Check button 2 (Profile 2) - normal operation (only when not running)
+  // Check button 2 (Profile 2)
   if (button2State != lastButton2State) {
     if (currentTime - lastButton2Time > DEBOUNCE_DELAY) {
       if (button2State == LOW) {
-        String msg = "[BUTTON] SW2 (Button 2) pressed (GPIO19)";
-        Serial.println(msg);
-        sendLogMessage(msg.c_str(), "info");
+        Serial.println("[SWITCH] Transition: OFF -> ON2 (Program 2)");
+        sendLogMessage("[SWITCH] OFF -> ON2: Starting Program 2", "info");
         
         if (isRunning) {
-          msg = "SW2 (Button 2): Stop requested while running";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "warn");
+          Serial.println("[SWITCH] -> OFF: Stopping program");
+          sendLogMessage("[SAFETY] Stopping profile - setting dimmer to OFF", "warn");
           stopProfile();
           lastButton2Time = currentTime;
           lastButton2State = button2State;
@@ -1322,20 +1395,19 @@ void checkHardwareButtons() {
         }
 
         if (defaultProfile2 != 255) {
-          // Button 2 pressed - start default profile 2
-          msg = "Starting default profile 2 (ID: " + String(defaultProfile2) + ")";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "info");
+          Serial.println("Starting default profile 2 (ID: " + String(defaultProfile2) + ")");
           startDefaultProfile(2);
         } else {
-          msg = "SW2 (Button 2): No default profile set (set via BLE)";
-          Serial.println(msg);
-          sendLogMessage(msg.c_str(), "warn");
+          Serial.println("[SWITCH] SW2: No default profile set");
+          sendLogMessage("[SWITCH] SW2: No default profile set", "warn");
         }
       } else {
-        String msg = "[BUTTON] SW2 (Button 2) released (GPIO19)";
-        Serial.println(msg);
-        sendLogMessage(msg.c_str(), "debug");
+        Serial.println("[SWITCH] Transition: ON2 (Program 2) -> OFF");
+        if (isRunning) {
+          Serial.println("[SWITCH] -> OFF: Stopping program");
+          sendLogMessage("[SAFETY] Stopping profile - setting dimmer to OFF", "warn");
+          stopProfile();
+        }
       }
       lastButton2Time = currentTime;
     }
@@ -1559,6 +1631,55 @@ void startDefaultProfile(int button) {
   response["profile_name"] = profile.name;
   response["segments"] = profile.segmentCount;
   response["start_time"] = startTime; // millis since boot
+  sendResponse(response);
+}
+
+void startProfileById(uint8_t profileId) {
+  if (profileId >= profileCount) {
+    String msg = "Invalid profile ID: " + String(profileId);
+    Serial.println(msg);
+    sendLogMessage(msg.c_str(), "error");
+    return;
+  }
+  
+  CompactProfile& profile = storedProfiles[profileId];
+  if (calculateChecksum(profile) != profile.checksum) {
+    String msg = "Profile checksum validation failed for ID: " + String(profileId);
+    Serial.println(msg);
+    sendLogMessage(msg.c_str(), "error");
+    return;
+  }
+  
+  String msg = "Starting profile \"" + String(profile.name) + "\" (ID: " + String(profileId) + ")";
+  Serial.println(msg);
+  sendLogMessage(msg.c_str(), "info");
+  
+  if (profileDoc != NULL) {
+    delete profileDoc;
+    profileDoc = NULL;
+  }
+  
+  profileDoc = new DynamicJsonDocument(4096);
+  profileSegments = profileDoc->createNestedArray("segments");
+  totalSegments = profile.segmentCount;
+  
+  for (int i = 0; i < profile.segmentCount; i++) {
+    JsonObject segment = profileSegments.createNestedObject();
+    segment["startTime"] = profile.segments[i].startTime;
+    segment["endTime"] = profile.segments[i].endTime;
+    segment["startPressure"] = profile.segments[i].startPressure / 10.0;
+    segment["endPressure"] = profile.segments[i].endPressure / 10.0;
+  }
+  
+  currentSegment = 0;
+  startTime = millis();
+  isRunning = true;
+  
+  DynamicJsonDocument response(256);
+  response["status"] = "profile_started";
+  response["profile_id"] = profileId;
+  response["profile_name"] = profile.name;
+  response["segments"] = profile.segmentCount;
   sendResponse(response);
 }
 
