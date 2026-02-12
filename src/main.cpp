@@ -14,20 +14,24 @@
 #define ZERO_CROSS_PIN 33   // GPIO33 (D33) for zero-cross detection (RobotDyn Mod-Dimmer-5A-1L)
 #define DIMMER_PIN 25       // GPIO25 (D25) for AC dimmer control (gate pin - PWM output)
 #define LED_PIN 2           // GPIO2 for status LED (built-in LED)
-#define BUTTON_1_PIN 18     // GPIO18 (D18) for hardware button 1 (Program 1)
-#define BUTTON_2_PIN 19     // GPIO19 (D19) for hardware button 2 (Program 2)
+#define BUTTON_1_PIN 18     // GPIO18 (D18) for hardware button 1 (Program 1) - DISABLED in manual-dimmer-control
+#define BUTTON_2_PIN 19     // GPIO19 (D19) for hardware button 2 (Program 2) - DISABLED in manual-dimmer-control
+#define RELAY_1_PIN 22      // GPIO22 (D22) relay output - DISABLED in manual-dimmer-control
+#define RELAY_2_PIN 23      // GPIO23 (D23) relay output - DISABLED in manual-dimmer-control
+#define USE_HARDWARE_BUTTONS 0  // Set to 1 to re-enable D18/D19
+#define USE_RELAYS 0            // Set to 1 to re-enable D22/D23
 
 // ============================================================================
-// TRIAC DRIVE CONFIGURATION (Custom implementation - replaces RBDimmer)
+// TRIAC DRIVE CONFIGURATION - PSM (Pulse-Skip Modulation)
 // ============================================================================
 
 // Debug mode
 #define DIM_DEBUG 1
 
-// Pulse timing constants (for 50Hz AC)
-#define PULSE_WIDTH_US 300      // Trigger pulse width
-#define DELAY_FULL_US 200       // Delay for full power (100%)
-#define DELAY_OFF_US 10500      // Delay for OFF (never fires within half-cycle)
+// PSM Configuration
+#define PSM_WINDOW_MS 100           // 100ms window (10 half-cycles at 50Hz)
+#define PHASE_DELAY_FULL_US 200     // 200µs delay for full conduction
+#define PULSE_WIDTH_US 300          // 300µs trigger pulse width
 
 // AC frequency
 #define AC_FREQ_HZ 50
@@ -38,18 +42,29 @@ enum DimmerMode {
   DIM_ON = 1
 };
 
+// ZC tracking
 volatile bool zcFlag = false;
 volatile unsigned long zcTimestamp = 0;
 volatile unsigned long lastZcTimestamp = 0;
 volatile unsigned long zcInterval = 0;
+
+// PSM state
+volatile int psmAccumulator = 0;      // Bresenham accumulator (modified in ISR)
+int psmDutyPercent = 0;               // 0-100% duty cycle
 DimmerMode dimmerMode = DIM_OFF;
 int dimmerLevel = 0;
-unsigned long pulseDelayUs = DELAY_OFF_US;
+
+// PSM stats (volatile for ISR access)
+volatile unsigned long psmZcCount = 0;
+volatile unsigned long psmFiredCount = 0;
+unsigned long psmLastStatsTime = 0;
+unsigned long psmLastZcCount = 0;
+unsigned long psmLastFiredCount = 0;
 
 // PWM test mode (bypasses zero-cross, direct LEDC PWM)
 bool pwmTestMode = false;
 
-// Instrumentation
+// Legacy compatibility
 unsigned long pulseCount = 0;
 unsigned long offModeStartTime = 0;
 bool zcEnabled = true;
@@ -117,9 +132,21 @@ bool button2StateInitialized = false;
 // Power-up safety: Prevents auto-start if switch is ON at boot
 bool powerUpSafetyActive = false;  // True = switch was ON at boot, waiting for OFF
 
-// Calibration data
-int dimLevelToPressure[11] = {0}; // 0%, 10%, 20%, ..., 100%
+// Calibration data - stores pressure for each dim level (0-100 in steps of 5)
+// Index 0 = 0%, Index 1 = 5%, Index 2 = 10%, ..., Index 20 = 100%
+#define CALIBRATION_POINTS 21  // 0, 5, 10, 15, ..., 100 (21 values)
+float dimLevelToPressure[CALIBRATION_POINTS] = {0}; // Pressure for each 5% step
 bool isCalibrated = false;
+
+// Helper: Convert dim level (0-100) to calibration array index
+inline int dimLevelToIndex(int dimLevel) {
+  return constrain(dimLevel / 5, 0, CALIBRATION_POINTS - 1);
+}
+
+// Helper: Convert calibration array index to dim level
+inline int indexToDimLevel(int index) {
+  return index * 5;
+}
 
 // Pressure sensor calibration
 float pressureOffset = 0.0;
@@ -174,7 +201,6 @@ void IRAM_ATTR zeroCrossISR();
 void IRAM_ATTR pulseTimerCallback(void* arg);
 void initTriacDrive();
 void setTriacLevel(int level);
-void processZeroCross();
 void printTriacStats();
 
 class MyServerCallbacks: public BLEServerCallbacks {
@@ -213,11 +239,28 @@ void IRAM_ATTR zeroCrossISR() {
   }
   lastZcTimestamp = now;
   zcTimestamp = now;
+  psmZcCount++;
   
-  // Schedule triac pulse directly in ISR (not via loop polling)
+  // PSM decision + firing entirely in ISR (no loop dependency)
   if (dimmerMode == DIM_ON && pulseTimerHandle != NULL) {
-    esp_timer_stop(pulseTimerHandle);
-    esp_timer_start_once(pulseTimerHandle, pulseDelayUs);
+    bool shouldFire = false;
+    
+    if (psmDutyPercent >= 100) {
+      shouldFire = true;
+    } else if (psmDutyPercent > 0) {
+      // Bresenham algorithm in ISR
+      psmAccumulator += psmDutyPercent;
+      if (psmAccumulator >= 100) {
+        psmAccumulator -= 100;
+        shouldFire = true;
+      }
+    }
+    
+    if (shouldFire) {
+      esp_timer_stop(pulseTimerHandle);
+      esp_timer_start_once(pulseTimerHandle, PHASE_DELAY_FULL_US);
+      psmFiredCount++;
+    }
   }
 }
 
@@ -246,7 +289,8 @@ void initTriacDrive() {
   
   dimmerMode = DIM_OFF;
   dimmerLevel = 0;
-  pulseDelayUs = DELAY_OFF_US;
+  psmDutyPercent = 0;
+  psmAccumulator = 0;
   
   esp_timer_create_args_t timerArgs = {
     .callback = &pulseTimerCallback,
@@ -279,73 +323,72 @@ void setTriacLevel(int level) {
     return;
   }
   
-  // TRIAC mode (normal operation)
+  // PSM mode (Pulse-Skip Modulation)
   if (level == 0) {
     if (pulseTimerHandle != NULL) {
       esp_timer_stop(pulseTimerHandle);
     }
     dimmerMode = DIM_OFF;
+    psmDutyPercent = 0;
+    psmAccumulator = 0;
     digitalWrite(DIMMER_PIN, LOW);
-    pulseDelayUs = DELAY_OFF_US;
     offModeStartTime = millis();
     
-    Serial.println("[DIMMER] Level 0% - OFF mode (no pulses, pin LOW)");
+    Serial.println("[PSM] Level 0% - OFF mode (no pulses)");
   } else {
-    // Linear mapping: 100% = DELAY_FULL_US (200µs), 1% = near DELAY_OFF_US
-    pulseDelayUs = map(level, 1, 100, 9300, DELAY_FULL_US);
+    // PSM: duty percent controls how many half-cycles fire
+    psmDutyPercent = level;
+    psmAccumulator = 0;  // Reset accumulator
     dimmerMode = DIM_ON;
     
-    Serial.print("[DIMMER] Level ");
+    Serial.print("[PSM] Level ");
     Serial.print(level);
-    Serial.print("% - TRIAC mode (delay: ");
-    Serial.print(pulseDelayUs);
-    Serial.println("µs)");
+    Serial.print("% - PSM mode (");
+    Serial.print(level);
+    Serial.println(" of 100 half-cycles)");
   }
 }
+
+// PSM decision now happens entirely in ISR - no loop dependency
 
 // Wrapper for compatibility
 void setDimLevel(int level) {
   setTriacLevel(level);
 }
 
-// ============================================================================
-// PROCESS ZERO-CROSS (call from loop)
-// ============================================================================
-void processZeroCross() {
-  if (zcFlag) {
-    zcFlag = false;
-    
-    if (dimmerMode == DIM_ON && pulseTimerHandle != NULL) {
-      esp_timer_stop(pulseTimerHandle);
-      esp_timer_start_once(pulseTimerHandle, pulseDelayUs);
-    }
-  }
-}
+// processZeroCross() removed - replaced by updatePsmDecision() for PSM mode
 
 // ============================================================================
 // PRINT TRIAC STATS
 // ============================================================================
 void printTriacStats() {
   static unsigned long lastPrint = 0;
-  static unsigned long lastPulseCount = 0;
   
-  if (millis() - lastPrint < 5000) return;  // Every 5 seconds
+  if (millis() - lastPrint < 1000) return;  // Every 1 second
   
-  float pps = (pulseCount - lastPulseCount) / 5.0f;
-  lastPulseCount = pulseCount;
+  // Calculate rates
+  unsigned long currentZc = psmZcCount;
+  unsigned long currentFired = psmFiredCount;
+  float zcPerSec = (currentZc - psmLastZcCount) / 1.0f;
+  float firedPerSec = (currentFired - psmLastFiredCount) / 1.0f;
+  psmLastZcCount = currentZc;
+  psmLastFiredCount = currentFired;
   lastPrint = millis();
   
-  String modeStr = pwmTestMode ? "PWM_TEST" : (dimmerMode == DIM_OFF ? "OFF" : "TRIAC");
+  // Calculate actual duty
+  float actualDuty = (zcPerSec > 0) ? (firedPerSec / zcPerSec * 100.0f) : 0.0f;
+  
+  String modeStr = pwmTestMode ? "PWM_TEST" : (dimmerMode == DIM_OFF ? "OFF" : "PSM");
   
   // Build stats string
-  String stats = "[DIMMER STATS] Mode: " + modeStr + 
-                 ", Level: " + String(dimmerLevel) + "%" +
-                 ", Pulses: " + String(pulseCount) +
-                 ", Pulses/sec: " + String(pps, 1) +
-                 ", ZC: " + String(zcEnabled ? "ON" : "OFF");
+  String stats = "[PSM STATS] Mode: " + modeStr + 
+                 ", Duty: " + String(psmDutyPercent) + "%" +
+                 ", ZC/s: " + String(zcPerSec, 0) +
+                 ", Fired/s: " + String(firedPerSec, 0) +
+                 ", Actual: " + String(actualDuty, 1) + "%";
   
   if (zcEnabled && zcInterval > 0) {
-    stats += ", ZC interval: " + String(zcInterval) + "µs";
+    stats += ", ZC int: " + String(zcInterval) + "µs";
   }
   
   // Print to Serial AND send via BLE
@@ -372,11 +415,10 @@ void setup() {
 
   // Initialize pins
   pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+#if USE_HARDWARE_BUTTONS
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);
-  digitalWrite(LED_PIN, LOW);
-  
-  // Initialize button states with power-up safety
   delay(10);
   lastButton1State = digitalRead(BUTTON_1_PIN);
   lastButton2State = digitalRead(BUTTON_2_PIN);
@@ -384,8 +426,6 @@ void setup() {
   lastButton2Time = millis();
   button1StateInitialized = false;
   button2StateInitialized = false;
-  
-  // Power-up safety check: Is switch ON at boot?
   if (lastButton1State == LOW || lastButton2State == LOW) {
     powerUpSafetyActive = true;
     Serial.println("[SWITCH] WARNING: Switch is ON at boot - waiting for OFF position");
@@ -395,6 +435,15 @@ void setup() {
     powerUpSafetyActive = false;
     Serial.println("[SWITCH] Switch is OFF at boot - normal operation");
   }
+#else
+  powerUpSafetyActive = false;
+#endif
+#if USE_RELAYS
+  pinMode(RELAY_1_PIN, OUTPUT);
+  pinMode(RELAY_2_PIN, OUTPUT);
+  digitalWrite(RELAY_1_PIN, LOW);
+  digitalWrite(RELAY_2_PIN, LOW);
+#endif
 
   // Initialize Bluetooth
   BLEDevice::init("EspressoProfiler-ESP32");
@@ -484,8 +533,7 @@ void loop() {
     Serial.println("Initial messages sent");
   }
 
-  // NOTE: ZC processing now happens directly in ISR for reliable timing
-  // processZeroCross() no longer needed for pulse scheduling
+  // PSM decision happens in ISR - nothing to do here
 
   // Handle profile execution
   if (isRunning) {
@@ -498,8 +546,9 @@ void loop() {
     }
   }
 
-  // Check hardware buttons
+#if USE_HARDWARE_BUTTONS
   checkHardwareButtons();
+#endif
 
   // Print triac stats periodically
   printTriacStats();
@@ -518,12 +567,12 @@ void loop() {
 void saveCalibrationData() {
   preferences.putBool("calibrated", isCalibrated);
   if (isCalibrated) {
-    // Save calibration data array (11 values: 0-100% in steps of 10)
-    size_t dataSize = sizeof(int) * 11;
-    preferences.putBytes("calib_data", dimLevelToPressure, dataSize);
-    Serial.println("Calibration data saved to NVS");
+    // Save calibration data array (21 float values: 0-100% in steps of 5)
+    size_t dataSize = sizeof(float) * CALIBRATION_POINTS;
+    preferences.putBytes("calib_v2", dimLevelToPressure, dataSize);
+    Serial.println("Calibration data saved to NVS (v2 format)");
   } else {
-    preferences.remove("calib_data");
+    preferences.remove("calib_v2");
     Serial.println("Calibration data cleared from NVS");
   }
 }
@@ -532,19 +581,21 @@ void saveCalibrationData() {
 void loadCalibrationData() {
   isCalibrated = preferences.getBool("calibrated", false);
   if (isCalibrated) {
-    // Load calibration data array
-    size_t dataSize = sizeof(int) * 11;
-    if (preferences.getBytesLength("calib_data") == dataSize) {
-      preferences.getBytes("calib_data", dimLevelToPressure, dataSize);
-      Serial.println("Calibration data loaded from NVS:");
-      for (int i = 0; i <= 10; i++) {
+    // Load calibration data array (new v2 format with floats)
+    size_t dataSize = sizeof(float) * CALIBRATION_POINTS;
+    if (preferences.getBytesLength("calib_v2") == dataSize) {
+      preferences.getBytes("calib_v2", dimLevelToPressure, dataSize);
+      Serial.println("Calibration data loaded from NVS (v2):");
+      for (int i = 0; i < CALIBRATION_POINTS; i++) {
         if (dimLevelToPressure[i] > 0) {
-          Serial.println("  " + String(i * 10) + "% -> " + String(dimLevelToPressure[i]) + " bar");
+          Serial.println("  " + String(indexToDimLevel(i)) + "% -> " + String(dimLevelToPressure[i], 2) + " bar");
         }
       }
     } else {
-      Serial.println("WARNING: Calibration data size mismatch, clearing...");
+      Serial.println("WARNING: Calibration data size mismatch (old format?), clearing...");
       isCalibrated = false;
+      preferences.remove("calib_v2");
+      preferences.remove("calib_data");  // Remove old format too
       preferences.remove("calib_data");
     }
   } else {
@@ -795,7 +846,7 @@ void handleCommand(const char* command) {
     response["status"] = "dim_level_set";
     response["level"] = dimmerLevel;
     response["mode"] = modeStr;
-    response["delay_us"] = pulseDelayUs;
+    response["psm_duty"] = psmDutyPercent;
     sendResponse(response);
   } else if (cmd == "set_zc_enabled") {
     bool enabled = doc["enabled"] | true;
@@ -840,10 +891,11 @@ void handleCommand(const char* command) {
   } else if (cmd == "get_dimmer_stats") {
     DynamicJsonDocument response(512);
     response["status"] = "dimmer_stats";
-    response["mode"] = (dimmerMode == DIM_OFF) ? "OFF" : "TRIAC";
+    response["mode"] = (dimmerMode == DIM_OFF) ? "OFF" : "PSM";
     response["level"] = dimmerLevel;
-    response["delay_us"] = pulseDelayUs;
-    response["pulse_count"] = pulseCount;
+    response["psm_duty"] = psmDutyPercent;
+    response["zc_count"] = (unsigned long)psmZcCount;
+    response["fired_count"] = (unsigned long)psmFiredCount;
     response["sw_control"] = swControlEnabled;
     sendResponse(response);
   } else if (cmd == "set_sw_control") {
@@ -865,6 +917,19 @@ void handleCommand(const char* command) {
     response["status"] = "sw_control_set";
     response["enabled"] = swControlEnabled;
     sendResponse(response);
+  } else if (cmd == "relay_test") {
+#if USE_RELAYS
+    bool on = doc["on"] | false;
+    digitalWrite(RELAY_1_PIN, on ? HIGH : LOW);
+    digitalWrite(RELAY_2_PIN, on ? HIGH : LOW);
+    Serial.println(String("[RELAY] Test: ") + (on ? "ON" : "OFF"));
+    DynamicJsonDocument response(256);
+    response["status"] = "relay_test";
+    response["on"] = on;
+    sendResponse(response);
+#else
+    sendLogMessage("[RELAY] Relays disabled in this build", "warn");
+#endif
   }
 }
 
@@ -916,19 +981,16 @@ void startProfile(JsonObject profile) {
   
   currentSegment = 0;
   startTime = millis();
+#if USE_RELAYS
+  digitalWrite(RELAY_1_PIN, HIGH);
+  digitalWrite(RELAY_2_PIN, HIGH);
+#endif
   isRunning = true;
-  
-  // IMPORTANT: Update button state tracking to match actual button state when profile starts
-  // This prevents false emergency stops right after profile start
-  // Note: startProfile() is called from BLE, so we don't know which button triggered it
-  // Initialize states based on actual button state - only enable emergency stop if button is pressed
-  lastButton1State = digitalRead(BUTTON_1_PIN);  // Read actual state
-  lastButton2State = digitalRead(BUTTON_2_PIN);  // Read actual state
+#if USE_HARDWARE_BUTTONS
+  lastButton1State = digitalRead(BUTTON_1_PIN);
+  lastButton2State = digitalRead(BUTTON_2_PIN);
   lastButton1Time = millis();
   lastButton2Time = millis();
-  
-  // Initialize flags based on actual button states
-  // Only enable emergency stop check if button is actually pressed (LOW)
   if (lastButton1State == LOW) {
     button1StateInitialized = true;  // Button is pressed - ready for emergency stop check
     Serial.println("DEBUG: Button1 initialized as LOW (pressed) for BLE-started profile");
@@ -938,13 +1000,13 @@ void startProfile(JsonObject profile) {
   }
   
   if (lastButton2State == LOW) {
-    button2StateInitialized = true;  // Button is pressed - ready for emergency stop check
+    button2StateInitialized = true;
     Serial.println("DEBUG: Button2 initialized as LOW (pressed) for BLE-started profile");
   } else {
-    button2StateInitialized = false;  // Button not pressed - don't check for emergency stop
+    button2StateInitialized = false;
     Serial.println("DEBUG: Button2 initialized as HIGH (not pressed) - emergency stop disabled");
   }
-  
+#endif
   String profileName = profile["name"] | "Unnamed";
   String logMsg = "Brew profile started: \"" + profileName + "\" (" + String(totalSegments) + " segments)";
   Serial.println(logMsg);
@@ -972,6 +1034,10 @@ void startProfile(JsonObject profile) {
 }
 
 void stopProfile() {
+#if USE_RELAYS
+  digitalWrite(RELAY_1_PIN, LOW);
+  digitalWrite(RELAY_2_PIN, LOW);
+#endif
   if (!isRunning) {
     // Already stopped, nothing to do
     return;
@@ -990,11 +1056,11 @@ void stopProfile() {
   Serial.println(logMsg);
   sendLogMessage(logMsg.c_str(), "info");
   
-  // IMPORTANT: Reset emergency stop initialization flags
-  // This prevents false emergency stops when starting a new profile
+#if USE_HARDWARE_BUTTONS
   button1StateInitialized = false;
   button2StateInitialized = false;
   Serial.println("DEBUG: Reset button state initialization flags");
+#endif
   
   // Clean up profile document
   if (profileDoc != NULL) {
@@ -1170,25 +1236,57 @@ float getCurrentPressure() {
 }
 
 int pressureToDimLevel(float pressure) {
+  // FULL POWER: If pressure is >= 10 bar, always return 100% (no PSM skipping)
+  if (pressure >= 10.0f) {
+    return 100;
+  }
+  
   if (!isCalibrated) {
     // Fallback: linear mapping assuming 0-12 bar range
     return map(pressure * 100, 0, 1200, 0, 100);
   }
   
-  // Use calibration data to find closest dim level
-  int bestLevel = 0;
-  float bestDiff = 999.0;
+  // Clamp input pressure
+  pressure = constrain(pressure, 0, 12);
   
-  for (int i = 0; i <= 10; i++) {
-    float calibPressure = dimLevelToPressure[i];
-    float diff = abs(pressure - calibPressure);
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      bestLevel = i * 10;
+  // Find the two calibration points that bracket the target pressure
+  // and interpolate the dim level
+  int lowerIndex = 0;
+  int upperIndex = CALIBRATION_POINTS - 1;
+  
+  // Find bounds
+  for (int i = 0; i < CALIBRATION_POINTS - 1; i++) {
+    float p1 = dimLevelToPressure[i];
+    float p2 = dimLevelToPressure[i + 1];
+    
+    if (pressure >= p1 && pressure <= p2) {
+      lowerIndex = i;
+      upperIndex = i + 1;
+      break;
+    }
+    // Also handle case where pressure is between higher and lower (non-monotonic)
+    if (pressure <= p1 && pressure >= p2) {
+      lowerIndex = i + 1;
+      upperIndex = i;
+      break;
     }
   }
   
-  return bestLevel;
+  float lowerPressure = dimLevelToPressure[lowerIndex];
+  float upperPressure = dimLevelToPressure[upperIndex];
+  int lowerDimLevel = indexToDimLevel(lowerIndex);
+  int upperDimLevel = indexToDimLevel(upperIndex);
+  
+  // Avoid division by zero
+  if (abs(upperPressure - lowerPressure) < 0.01) {
+    return lowerDimLevel;
+  }
+  
+  // Linear interpolation
+  float ratio = (pressure - lowerPressure) / (upperPressure - lowerPressure);
+  int dimLevel = lowerDimLevel + round(ratio * (upperDimLevel - lowerDimLevel));
+  
+  return constrain(dimLevel, 0, 100);
 }
 
 void startCalibration() {
@@ -1201,13 +1299,16 @@ void startCalibration() {
 }
 
 void setCalibrationPoint(int step, float pressure) {
-  if (step >= 0 && step <= 10) {
-    dimLevelToPressure[step] = pressure;
-    Serial.println("Calibration point " + String(step) + ": " + String(pressure) + " bar");
+  // step is the dim level (0-100), convert to index
+  int index = dimLevelToIndex(step);
+  if (index >= 0 && index < CALIBRATION_POINTS) {
+    dimLevelToPressure[index] = pressure;
+    Serial.println("Calibration point " + String(step) + "% (idx " + String(index) + "): " + String(pressure, 2) + " bar");
     
-    if (step == 10) {
+    if (step >= 100) {
       isCalibrated = true;
-      Serial.println("Calibration completed");
+      saveCalibrationData();
+      Serial.println("Calibration completed and saved");
     }
   }
 }
@@ -1224,7 +1325,7 @@ void setCalibrationData(JsonObject calibration) {
   }
   
   // Clear existing calibration data
-  for (int i = 0; i <= 10; i++) {
+  for (int i = 0; i < CALIBRATION_POINTS; i++) {
     dimLevelToPressure[i] = 0;
   }
   
@@ -1232,15 +1333,18 @@ void setCalibrationData(JsonObject calibration) {
   int totalPoints = calibration.size();
   
   // Fill in calibration data from JSON
+  // Supports any dim level that's a multiple of 5 (0, 5, 10, 15, ..., 100)
   for (JsonPair kv : calibration) {
     int dimLevel = atoi(kv.key().c_str());
     float pressure = kv.value().as<float>();
     
     if (dimLevel >= 0 && dimLevel <= 100 && pressure >= 0 && pressure <= 12) {
-      int index = dimLevel / 10;
+      // Round to nearest 5% and get index
+      int roundedLevel = ((dimLevel + 2) / 5) * 5;  // Round to nearest 5
+      int index = dimLevelToIndex(roundedLevel);
       dimLevelToPressure[index] = pressure;
       validPoints++;
-      Serial.println("Calibration: " + String(dimLevel) + "% -> " + String(pressure) + " bar");
+      Serial.println("Calibration: " + String(dimLevel) + "% (idx " + String(index) + ") -> " + String(pressure, 2) + " bar");
     } else {
       Serial.println("Invalid calibration point: " + String(dimLevel) + "% -> " + String(pressure) + " bar");
     }
@@ -1266,9 +1370,9 @@ void setCalibrationData(JsonObject calibration) {
     
     // Include the actual calibration data for verification
     JsonObject calibData = response.createNestedObject("calibration_data");
-    for (int i = 0; i <= 10; i++) {
+    for (int i = 0; i < CALIBRATION_POINTS; i++) {
       if (dimLevelToPressure[i] > 0) {
-        calibData[String(i * 10)] = dimLevelToPressure[i];
+        calibData[String(indexToDimLevel(i))] = dimLevelToPressure[i];
       }
     }
     
@@ -1285,15 +1389,15 @@ void setCalibrationData(JsonObject calibration) {
 }
 
 void sendCalibrationStatus() {
-  DynamicJsonDocument response(512);
+  DynamicJsonDocument response(1024);  // Larger buffer for more calibration points
   response["type"] = "calibration_status";
   response["is_calibrated"] = isCalibrated;
   
   if (isCalibrated) {
     JsonObject calibData = response.createNestedObject("calibration_data");
-    for (int i = 0; i <= 10; i++) {
+    for (int i = 0; i < CALIBRATION_POINTS; i++) {
       if (dimLevelToPressure[i] > 0) {
-        calibData[String(i * 10)] = dimLevelToPressure[i];
+        calibData[String(indexToDimLevel(i))] = dimLevelToPressure[i];
       }
     }
   }
@@ -1353,8 +1457,7 @@ void sendStatusUpdate() {
 }
 
 void checkHardwareButtons() {
-  // Read button states
-  // Note: INPUT_PULLUP means LOW = pressed, HIGH = not pressed (0 = button off)
+#if USE_HARDWARE_BUTTONS
   bool button1State = digitalRead(BUTTON_1_PIN);
   bool button2State = digitalRead(BUTTON_2_PIN);
   
@@ -1444,6 +1547,7 @@ void checkHardwareButtons() {
     }
     lastButton2State = button2State;
   }
+#endif
 }
 
 // Calculate checksum for profile validation
@@ -1625,10 +1729,12 @@ void startDefaultProfile(int button) {
   // Start profile execution
   currentSegment = 0;
   startTime = millis();
+#if USE_RELAYS
+  digitalWrite(RELAY_1_PIN, HIGH);
+  digitalWrite(RELAY_2_PIN, HIGH);
+#endif
   isRunning = true;
-  
-  // IMPORTANT: Update button state tracking to match actual button state when profile starts
-  // This prevents false emergency stops right after profile start
+#if USE_HARDWARE_BUTTONS
   if (button == 1) {
     lastButton1State = digitalRead(BUTTON_1_PIN);  // Read actual state
     lastButton1Time = millis();
@@ -1652,7 +1758,7 @@ void startDefaultProfile(int button) {
       Serial.println("DEBUG: Button2 initialized as HIGH (not pressed) - emergency stop disabled");
     }
   }
-  
+#endif
   Serial.println("DEBUG startDefaultProfile: startTime=" + String(startTime) + ", totalSegments=" + String(totalSegments) + ", isRunning=" + String(isRunning));
   
   // Send confirmation
@@ -1704,6 +1810,10 @@ void startProfileById(uint8_t profileId) {
   
   currentSegment = 0;
   startTime = millis();
+#if USE_RELAYS
+  digitalWrite(RELAY_1_PIN, HIGH);
+  digitalWrite(RELAY_2_PIN, HIGH);
+#endif
   isRunning = true;
   
   DynamicJsonDocument response(256);
